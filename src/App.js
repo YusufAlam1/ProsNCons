@@ -1,8 +1,10 @@
 import React from "react";
-import "./App.css";
-import ControlBar from "./ControlBar";
-import ProsConsTable from "./ProsConsTable";
-import Scale from "./Scale";
+import "./styles/background.css";
+import "./styles/layout.css";
+import "./styles/typography.css";
+import ControlBar from "./components/ControlBar";
+import ProsConsTable from "./components/ProsConsTable";
+import Scale from "./components/Scale";
 
 function App() {
   return (

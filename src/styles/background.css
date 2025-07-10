@@ -1,0 +1,10 @@
+.notepad-bg {
+  background-color: #f5f6fa;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    #b0c4de 0 0.12em,
+    transparent 0.12em 2.5em
+  );
+  min-height: 100vh;
+  width: 100vw;
+}
