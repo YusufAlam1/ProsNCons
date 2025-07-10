@@ -36,3 +36,30 @@
     transform: rotate(360deg);
   }
 }
+
+.app-layout {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 48px;
+  margin: 48px 0 24px 0;
+}
+
+.control-bar {
+  display: flex;
+  justify-content: center;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.pros-cons-table {
+  min-width: 400px;
+  max-width: 500px;
+}
+
+.scale-visualization {
+  min-width: 400px;
+  max-width: 500px;
+  min-height: 350px;
+}
