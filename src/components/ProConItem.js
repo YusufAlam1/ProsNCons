@@ -12,6 +12,7 @@ function ProConItem({
   onEditTextChange,
   onEditTextSave,
   onEditTextCancel,
+  aiGenerated,
 }) {
   // Color shades for weights 1-10 (gradient colors)
   const proShades = [
@@ -126,7 +127,7 @@ function ProConItem({
           className="procon-weight-num"
           onClick={handleEditWeight}
           tabIndex={0}
-          title="Edit weight"
+          title={aiGenerated ? "AI-generated weight (click to edit)" : "Edit weight"}
         >
           {editingWeight ? (
             <input
@@ -141,7 +142,10 @@ function ProConItem({
               className="procon-weight-input"
             />
           ) : (
-            weight
+            <>
+              {weight}
+              {aiGenerated && <span className="ai-indicator" title="AI-generated weight">🤖</span>}
+            </>
           )}
         </span>
         

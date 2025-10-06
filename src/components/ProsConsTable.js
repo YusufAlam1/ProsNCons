@@ -14,10 +14,40 @@ function ProsConsTable({ onProsChange, onConsChange }) {
   const [editingTextId, setEditingTextId] = useState(null);
   const [editingTextValue, setEditingTextValue] = useState("");
   const [editingType, setEditingType] = useState(null);
+  const [isAnalyzingPro, setIsAnalyzingPro] = useState(false);
+  const [isAnalyzingCon, setIsAnalyzingCon] = useState(false);
+  const [useAIWeighting, setUseAIWeighting] = useState(true);
 
   // Validation helpers
   const isValidWeight = (w) => Number.isInteger(Number(w)) && w >= 1 && w <= 10;
   const isValidText = (t) => t.trim().length > 0;
+
+  // AI Sentiment Analysis function
+  const analyzeSentiment = async (text, itemType) => {
+    try {
+      const response = await fetch('http://localhost:8000/analyze-sentiment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: text,
+          item_type: itemType
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.weight;
+    } catch (error) {
+      console.error('Error analyzing sentiment:', error);
+      // Fallback to default weight if API fails
+      return itemType === 'pro' ? 5 : 5;
+    }
+  };
 
   // Calculate totals and notify parent
   const updatePros = (newPros) => {
@@ -32,18 +62,38 @@ function ProsConsTable({ onProsChange, onConsChange }) {
     onConsChange?.(total, newCons.length);
   };
 
-  const addPro = () => {
+  const addPro = async () => {
     if (!isValidText(newPro)) {
       setProError("Please enter a pro.");
       return;
     }
-    if (!isValidWeight(Number(newProWeight))) {
-      setProError("Weight must be 1-10.");
-      return;
+
+    let finalWeight = Number(newProWeight);
+    
+    // Use AI sentiment analysis if enabled
+    if (useAIWeighting) {
+      setIsAnalyzingPro(true);
+      try {
+        finalWeight = await analyzeSentiment(newPro, 'pro');
+      } catch (error) {
+        console.error('Failed to analyze sentiment, using manual weight:', error);
+      }
+      setIsAnalyzingPro(false);
+    } else {
+      if (!isValidWeight(Number(newProWeight))) {
+        setProError("Weight must be 1-10.");
+        return;
+      }
     }
+
     const newPros = [
       ...pros,
-      { id: Date.now(), label: newPro, weight: Number(newProWeight) },
+      { 
+        id: Date.now(), 
+        label: newPro, 
+        weight: finalWeight,
+        aiGenerated: useAIWeighting
+      },
     ];
     updatePros(newPros);
     setNewPro("");
@@ -51,18 +101,38 @@ function ProsConsTable({ onProsChange, onConsChange }) {
     setProError("");
   };
 
-  const addCon = () => {
+  const addCon = async () => {
     if (!isValidText(newCon)) {
       setConError("Please enter a con.");
       return;
     }
-    if (!isValidWeight(Number(newConWeight))) {
-      setConError("Weight must be 1-10.");
-      return;
+
+    let finalWeight = Number(newConWeight);
+    
+    // Use AI sentiment analysis if enabled
+    if (useAIWeighting) {
+      setIsAnalyzingCon(true);
+      try {
+        finalWeight = await analyzeSentiment(newCon, 'con');
+      } catch (error) {
+        console.error('Failed to analyze sentiment, using manual weight:', error);
+      }
+      setIsAnalyzingCon(false);
+    } else {
+      if (!isValidWeight(Number(newConWeight))) {
+        setConError("Weight must be 1-10.");
+        return;
+      }
     }
+
     const newCons = [
       ...cons,
-      { id: Date.now(), label: newCon, weight: Number(newConWeight) },
+      { 
+        id: Date.now(), 
+        label: newCon, 
+        weight: finalWeight,
+        aiGenerated: useAIWeighting
+      },
     ];
     updateCons(newCons);
     setNewCon("");
@@ -155,6 +225,7 @@ function ProsConsTable({ onProsChange, onConsChange }) {
               onEditTextChange={handleEditTextChange}
               onEditTextSave={saveEditText}
               onEditTextCancel={cancelEditText}
+              aiGenerated={pro.aiGenerated}
             />
           ))}
         </div>
@@ -176,9 +247,26 @@ function ProsConsTable({ onProsChange, onConsChange }) {
               onEditTextChange={handleEditTextChange}
               onEditTextSave={saveEditText}
               onEditTextCancel={cancelEditText}
+              aiGenerated={con.aiGenerated}
             />
           ))}
         </div>
+      </div>
+
+      <div className="ai-controls">
+        <label className="ai-toggle">
+          <input
+            type="checkbox"
+            checked={useAIWeighting}
+            onChange={(e) => setUseAIWeighting(e.target.checked)}
+          />
+          <span className="ai-toggle-text">
+            🤖 AI Auto-Weighting (Sentiment Analysis)
+          </span>
+        </label>
+        {!useAIWeighting && (
+          <span className="manual-mode-note">Manual weighting mode</span>
+        )}
       </div>
 
       <div className="pros-cons-inputs">
@@ -190,21 +278,25 @@ function ProsConsTable({ onProsChange, onConsChange }) {
             value={newPro}
             onChange={(e) => setNewPro(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addPro()}
+            disabled={isAnalyzingPro}
           />
-          <input
-            type="number"
-            className="procon-input weight-input"
-            min={1}
-            max={10}
-            value={newProWeight}
-            onChange={(e) => setNewProWeight(e.target.value)}
-          />
+          {!useAIWeighting && (
+            <input
+              type="number"
+              className="procon-input weight-input"
+              min={1}
+              max={10}
+              value={newProWeight}
+              onChange={(e) => setNewProWeight(e.target.value)}
+              disabled={isAnalyzingPro}
+            />
+          )}
           <button
             className="add-button"
             onClick={addPro}
-            disabled={!isValidText(newPro) || !isValidWeight(Number(newProWeight))}
+            disabled={!isValidText(newPro) || isAnalyzingPro || (!useAIWeighting && !isValidWeight(Number(newProWeight)))}
           >
-            Add
+            {isAnalyzingPro ? "🤖 Analyzing..." : "Add"}
           </button>
           {proError && <div className="error-message">{proError}</div>}
         </div>
@@ -219,21 +311,25 @@ function ProsConsTable({ onProsChange, onConsChange }) {
             value={newCon}
             onChange={(e) => setNewCon(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && addCon()}
+            disabled={isAnalyzingCon}
           />
-          <input
-            type="number"
-            className="procon-input weight-input"
-            min={1}
-            max={10}
-            value={newConWeight}
-            onChange={(e) => setNewConWeight(e.target.value)}
-          />
+          {!useAIWeighting && (
+            <input
+              type="number"
+              className="procon-input weight-input"
+              min={1}
+              max={10}
+              value={newConWeight}
+              onChange={(e) => setNewConWeight(e.target.value)}
+              disabled={isAnalyzingCon}
+            />
+          )}
           <button
             className="add-button"
             onClick={addCon}
-            disabled={!isValidText(newCon) || !isValidWeight(Number(newConWeight))}
+            disabled={!isValidText(newCon) || isAnalyzingCon || (!useAIWeighting && !isValidWeight(Number(newConWeight)))}
           >
-            Add
+            {isAnalyzingCon ? "🤖 Analyzing..." : "Add"}
           </button>
           {conError && <div className="error-message">{conError}</div>}
         </div>
