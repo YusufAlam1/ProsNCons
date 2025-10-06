@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import "../styles/proconitem.css";
 
 function ProConItem({
   label,
@@ -14,36 +13,19 @@ function ProConItem({
   onEditTextSave,
   onEditTextCancel,
 }) {
-  // Color shades for weights 1-11 (for gradient end)
+  // Color shades for weights 1-10 (gradient colors)
   const proShades = [
-    "#d4f8e8",
-    "#aaf0c6",
-    "#7ee6a2",
-    "#4ed97a",
-    "#28c95a",
-    "#20b34e",
-    "#1a9c43",
-    "#158638",
-    "#106f2d",
-    "#0b5923",
-    "#06401a",
+    "#d4f8e8", "#aaf0c6", "#7ee6a2", "#4ed97a", "#28c95a",
+    "#20b34e", "#1a9c43", "#158638", "#106f2d", "#0b5923"
   ];
   const conShades = [
-    "#ffd6d6",
-    "#ffb3b3",
-    "#ff8f8f",
-    "#ff6a6a",
-    "#ff4545",
-    "#e63b3b",
-    "#cc3232",
-    "#b32929",
-    "#991f1f",
-    "#801616",
-    "#4d0d0d",
+    "#ffd6d6", "#ffb3b3", "#ff8f8f", "#ff6a6a", "#ff4545",
+    "#e63b3b", "#cc3232", "#b32929", "#991f1f", "#801616"
   ];
+  
   const shades = type === "pro" ? proShades : conShades;
-  const leftColor = shades[weight - 1];
-  const rightColor = shades[weight];
+  const leftColor = shades[Math.max(0, weight - 1)];
+  const rightColor = shades[Math.min(shades.length - 1, weight)];
 
   const [editingWeight, setEditingWeight] = useState(false);
   const [editWeightValue, setEditWeightValue] = useState(weight);
@@ -56,20 +38,27 @@ function ProConItem({
     }
   }, [editingText]);
 
-  const handleEditWeight = () => setEditingWeight(true);
+  useEffect(() => {
+    setEditWeightValue(weight);
+  }, [weight]);
+
+  const handleEditWeight = () => {
+    setEditingWeight(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+  
   const handleWeightChange = (e) => setEditWeightValue(e.target.value);
+  
   const handleWeightBlur = () => {
     setEditingWeight(false);
-    if (
-      editWeightValue !== weight &&
-      editWeightValue >= 1 &&
-      editWeightValue <= 10
-    ) {
-      onEditWeight(Number(editWeightValue));
+    const newWeight = Number(editWeightValue);
+    if (newWeight !== weight && newWeight >= 1 && newWeight <= 10) {
+      onEditWeight(newWeight);
     } else {
       setEditWeightValue(weight);
     }
   };
+  
   const handleWeightKeyDown = (e) => {
     if (e.key === "Enter") {
       handleWeightBlur();
@@ -79,7 +68,6 @@ function ProConItem({
     }
   };
 
-  // Text editing handlers
   const handleTextKeyDown = (e) => {
     if (e.key === "Enter") {
       onEditTextSave();
@@ -90,18 +78,12 @@ function ProConItem({
 
   return (
     <div
-      className={"procon-row-pill"}
+      className="procon-row-pill"
       style={{
         background: `linear-gradient(90deg, ${leftColor} 0%, ${rightColor} 100%)`,
-        position: "relative",
-        display: "flex",
-        alignItems: "center",
       }}
     >
-      <div
-        className="procon-label-area"
-        style={{ flex: 1, display: "flex", alignItems: "center", minWidth: 0 }}
-      >
+      <div className="procon-label-area">
         {editingText ? (
           <input
             ref={textInputRef}
@@ -111,7 +93,6 @@ function ProConItem({
             onChange={onEditTextChange}
             onBlur={onEditTextSave}
             onKeyDown={handleTextKeyDown}
-            style={{ width: "100%" }}
           />
         ) : (
           <>
@@ -139,10 +120,8 @@ function ProConItem({
           </>
         )}
       </div>
-      <div
-        className="procon-weight-area"
-        style={{ display: "flex", alignItems: "center", gap: 10 }}
-      >
+      
+      <div className="procon-weight-area">
         <span
           className="procon-weight-num"
           onClick={handleEditWeight}
@@ -159,13 +138,13 @@ function ProConItem({
               onChange={handleWeightChange}
               onBlur={handleWeightBlur}
               onKeyDown={handleWeightKeyDown}
-              autoFocus
               className="procon-weight-input"
             />
           ) : (
             weight
           )}
         </span>
+        
         <button
           className="procon-x-btn"
           onClick={onDelete}

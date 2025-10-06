@@ -1,8 +1,8 @@
 import React, { useState } from "react";
-import "../styles/pill.css";
+import "../styles/proscons.css";
 import ProConItem from "./ProConItem";
 
-function ProsConsTable() {
+function ProsConsTable({ onProsChange, onConsChange }) {
   const [pros, setPros] = useState([]);
   const [cons, setCons] = useState([]);
   const [newPro, setNewPro] = useState("");
@@ -13,11 +13,24 @@ function ProsConsTable() {
   const [conError, setConError] = useState("");
   const [editingTextId, setEditingTextId] = useState(null);
   const [editingTextValue, setEditingTextValue] = useState("");
-  const [editingType, setEditingType] = useState(null); // 'pro' or 'con'
+  const [editingType, setEditingType] = useState(null);
 
   // Validation helpers
   const isValidWeight = (w) => Number.isInteger(Number(w)) && w >= 1 && w <= 10;
   const isValidText = (t) => t.trim().length > 0;
+
+  // Calculate totals and notify parent
+  const updatePros = (newPros) => {
+    setPros(newPros);
+    const total = newPros.reduce((sum, pro) => sum + pro.weight, 0);
+    onProsChange?.(total, newPros.length);
+  };
+
+  const updateCons = (newCons) => {
+    setCons(newCons);
+    const total = newCons.reduce((sum, con) => sum + con.weight, 0);
+    onConsChange?.(total, newCons.length);
+  };
 
   const addPro = () => {
     if (!isValidText(newPro)) {
@@ -28,10 +41,11 @@ function ProsConsTable() {
       setProError("Weight must be 1-10.");
       return;
     }
-    setPros([
+    const newPros = [
       ...pros,
       { id: Date.now(), label: newPro, weight: Number(newProWeight) },
-    ]);
+    ];
+    updatePros(newPros);
     setNewPro("");
     setNewProWeight(1);
     setProError("");
@@ -46,25 +60,39 @@ function ProsConsTable() {
       setConError("Weight must be 1-10.");
       return;
     }
-    setCons([
+    const newCons = [
       ...cons,
       { id: Date.now(), label: newCon, weight: Number(newConWeight) },
-    ]);
+    ];
+    updateCons(newCons);
     setNewCon("");
     setNewConWeight(1);
     setConError("");
   };
 
-  const deletePro = (id) => setPros(pros.filter((pro) => pro.id !== id));
-  const deleteCon = (id) => setCons(cons.filter((con) => con.id !== id));
-  const editProWeight = (id, newWeight) =>
-    setPros(
-      pros.map((pro) => (pro.id === id ? { ...pro, weight: newWeight } : pro))
+  const deletePro = (id) => {
+    const newPros = pros.filter((pro) => pro.id !== id);
+    updatePros(newPros);
+  };
+
+  const deleteCon = (id) => {
+    const newCons = cons.filter((con) => con.id !== id);
+    updateCons(newCons);
+  };
+
+  const editProWeight = (id, newWeight) => {
+    const newPros = pros.map((pro) => 
+      pro.id === id ? { ...pro, weight: newWeight } : pro
     );
-  const editConWeight = (id, newWeight) =>
-    setCons(
-      cons.map((con) => (con.id === id ? { ...con, weight: newWeight } : con))
+    updatePros(newPros);
+  };
+
+  const editConWeight = (id, newWeight) => {
+    const newCons = cons.map((con) => 
+      con.id === id ? { ...con, weight: newWeight } : con
     );
+    updateCons(newCons);
+  };
 
   // Edit text handlers
   const startEditText = (id, label, type) => {
@@ -72,177 +100,142 @@ function ProsConsTable() {
     setEditingTextValue(label);
     setEditingType(type);
   };
+
   const handleEditTextChange = (e) => setEditingTextValue(e.target.value);
+
   const saveEditText = () => {
     if (!isValidText(editingTextValue)) return;
     if (editingType === "pro") {
-      setPros(
-        pros.map((pro) =>
-          pro.id === editingTextId ? { ...pro, label: editingTextValue } : pro
-        )
+      const newPros = pros.map((pro) =>
+        pro.id === editingTextId ? { ...pro, label: editingTextValue } : pro
       );
+      updatePros(newPros);
     } else if (editingType === "con") {
-      setCons(
-        cons.map((con) =>
-          con.id === editingTextId ? { ...con, label: editingTextValue } : con
-        )
+      const newCons = cons.map((con) =>
+        con.id === editingTextId ? { ...con, label: editingTextValue } : con
       );
+      updateCons(newCons);
     }
     setEditingTextId(null);
     setEditingTextValue("");
     setEditingType(null);
   };
+
   const cancelEditText = () => {
     setEditingTextId(null);
     setEditingTextValue("");
     setEditingType(null);
   };
 
-  // Table rows: max of pros.length or cons.length
-  const maxRows = Math.max(pros.length, cons.length);
-
   return (
-    <div className="pros-cons-table" style={{ marginLeft: 0, maxWidth: 900 }}>
-      <table
-        style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}
-      >
-        <thead>
-          <tr>
-            <th
-              style={{
-                textAlign: "left",
-                fontWeight: 700,
-                fontSize: "1.3em",
-                width: "45%",
-              }}
-            >
-              Pros
-            </th>
-            <th style={{ width: 2, background: "#222", minWidth: 2 }}></th>
-            <th
-              style={{
-                textAlign: "left",
-                fontWeight: 700,
-                fontSize: "1.3em",
-                width: "45%",
-              }}
-            >
-              Cons
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {[...Array(maxRows)].map((_, i) => (
-            <tr key={i}>
-              <td style={{ verticalAlign: "middle", width: "45%" }}>
-                {pros[i] && (
-                  <ProConItem
-                    label={pros[i].label}
-                    weight={pros[i].weight}
-                    type="pro"
-                    onEditWeight={(w) => editProWeight(pros[i].id, w)}
-                    onDelete={() => deletePro(pros[i].id)}
-                    onEditText={() =>
-                      startEditText(pros[i].id, pros[i].label, "pro")
-                    }
-                    editingText={editingTextId === pros[i].id}
-                    editingTextValue={editingTextValue}
-                    onEditTextChange={handleEditTextChange}
-                    onEditTextSave={saveEditText}
-                    onEditTextCancel={cancelEditText}
-                  />
-                )}
-              </td>
-              <td style={{ background: "#222", minWidth: 2, width: 2 }}></td>
-              <td style={{ verticalAlign: "middle", width: "45%" }}>
-                {cons[i] && (
-                  <ProConItem
-                    label={cons[i].label}
-                    weight={cons[i].weight}
-                    type="con"
-                    onEditWeight={(w) => editConWeight(cons[i].id, w)}
-                    onDelete={() => deleteCon(cons[i].id)}
-                    onEditText={() =>
-                      startEditText(cons[i].id, cons[i].label, "con")
-                    }
-                    editingText={editingTextId === cons[i].id}
-                    editingTextValue={editingTextValue}
-                    onEditTextChange={handleEditTextChange}
-                    onEditTextSave={saveEditText}
-                    onEditTextCancel={cancelEditText}
-                  />
-                )}
-              </td>
-            </tr>
+    <div className="pros-cons-container">
+      <div className="pros-cons-header">
+        <div className="pros-header">
+          <h2>Pros</h2>
+        </div>
+        <div className="header-divider"></div>
+        <div className="cons-header">
+          <h2>Cons</h2>
+        </div>
+      </div>
+
+      <div className="pros-cons-content">
+        <div className="pros-column">
+          {pros.map((pro, index) => (
+            <ProConItem
+              key={pro.id}
+              label={pro.label}
+              weight={pro.weight}
+              type="pro"
+              onEditWeight={(w) => editProWeight(pro.id, w)}
+              onDelete={() => deletePro(pro.id)}
+              onEditText={() => startEditText(pro.id, pro.label, "pro")}
+              editingText={editingTextId === pro.id}
+              editingTextValue={editingTextValue}
+              onEditTextChange={handleEditTextChange}
+              onEditTextSave={saveEditText}
+              onEditTextCancel={cancelEditText}
+            />
           ))}
-        </tbody>
-      </table>
-      <div style={{ display: "flex", gap: 24, marginTop: 16 }}>
-        <div style={{ flex: 1 }}>
+        </div>
+
+        <div className="content-divider"></div>
+
+        <div className="cons-column">
+          {cons.map((con, index) => (
+            <ProConItem
+              key={con.id}
+              label={con.label}
+              weight={con.weight}
+              type="con"
+              onEditWeight={(w) => editConWeight(con.id, w)}
+              onDelete={() => deleteCon(con.id)}
+              onEditText={() => startEditText(con.id, con.label, "con")}
+              editingText={editingTextId === con.id}
+              editingTextValue={editingTextValue}
+              onEditTextChange={handleEditTextChange}
+              onEditTextSave={saveEditText}
+              onEditTextCancel={cancelEditText}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="pros-cons-inputs">
+        <div className="pro-input-section">
           <input
             type="text"
             className="procon-input"
             placeholder="Add a pro..."
             value={newPro}
             onChange={(e) => setNewPro(e.target.value)}
-            style={{ width: "60%" }}
+            onKeyDown={(e) => e.key === 'Enter' && addPro()}
           />
           <input
             type="number"
-            className="procon-input"
+            className="procon-input weight-input"
             min={1}
             max={10}
             value={newProWeight}
             onChange={(e) => setNewProWeight(e.target.value)}
-            style={{ width: 48, marginLeft: 8 }}
           />
           <button
+            className="add-button"
             onClick={addPro}
-            disabled={
-              !isValidText(newPro) || !isValidWeight(Number(newProWeight))
-            }
-            style={{ marginLeft: 8 }}
+            disabled={!isValidText(newPro) || !isValidWeight(Number(newProWeight))}
           >
             Add
           </button>
-          {proError && (
-            <div style={{ color: "red", fontSize: "0.95em", marginTop: 4 }}>
-              {proError}
-            </div>
-          )}
+          {proError && <div className="error-message">{proError}</div>}
         </div>
-        <div style={{ flex: 1 }}>
+
+        <div className="input-divider"></div>
+
+        <div className="con-input-section">
           <input
             type="text"
             className="procon-input"
             placeholder="Add a con..."
             value={newCon}
             onChange={(e) => setNewCon(e.target.value)}
-            style={{ width: "60%" }}
+            onKeyDown={(e) => e.key === 'Enter' && addCon()}
           />
           <input
             type="number"
-            className="procon-input"
+            className="procon-input weight-input"
             min={1}
             max={10}
             value={newConWeight}
             onChange={(e) => setNewConWeight(e.target.value)}
-            style={{ width: 48, marginLeft: 8 }}
           />
           <button
+            className="add-button"
             onClick={addCon}
-            disabled={
-              !isValidText(newCon) || !isValidWeight(Number(newConWeight))
-            }
-            style={{ marginLeft: 8 }}
+            disabled={!isValidText(newCon) || !isValidWeight(Number(newConWeight))}
           >
             Add
           </button>
-          {conError && (
-            <div style={{ color: "red", fontSize: "0.95em", marginTop: 4 }}>
-              {conError}
-            </div>
-          )}
+          {conError && <div className="error-message">{conError}</div>}
         </div>
       </div>
     </div>

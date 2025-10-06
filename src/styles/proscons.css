@@ -1,0 +1,175 @@
+/* Pros and Cons Table Styles */
+
+.pros-cons-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.pros-cons-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.pros-header,
+.cons-header {
+  flex: 1;
+  text-align: center;
+  font-size: 1.5em;
+  font-weight: bold;
+  padding: 10px;
+}
+
+.pros-header {
+  color: #22c55e;
+}
+
+.cons-header {
+  color: #ef4444;
+}
+
+.header-divider {
+  width: 2px;
+  height: 40px;
+  background-color: #e5e7eb;
+  margin: 0 20px;
+}
+
+.pros-cons-content {
+  display: flex;
+  min-height: 400px;
+  margin-bottom: 30px;
+}
+
+.pros-column,
+.cons-column {
+  flex: 1;
+  padding: 20px;
+  background-color: #f9fafb;
+  border-radius: 8px;
+  min-height: 300px;
+}
+
+.pros-column {
+  border-left: 4px solid #22c55e;
+  margin-right: 10px;
+}
+
+.cons-column {
+  border-left: 4px solid #ef4444;
+  margin-left: 10px;
+}
+
+.content-divider {
+  width: 2px;
+  background-color: #e5e7eb;
+  margin: 0 10px;
+}
+
+.pros-cons-inputs {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.pro-input-section,
+.con-input-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.procon-input {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #e5e7eb;
+  border-radius: 6px;
+  font-size: 16px;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.procon-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.weight-input {
+  width: 100px;
+  text-align: center;
+}
+
+.add-button {
+  padding: 12px 24px;
+  background-color: #3b82f6;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.add-button:hover {
+  background-color: #2563eb;
+}
+
+.add-button:active {
+  background-color: #1d4ed8;
+}
+
+.input-divider {
+  width: 2px;
+  background-color: #e5e7eb;
+  align-self: stretch;
+  margin: 0 10px;
+}
+
+.error-message {
+  color: #ef4444;
+  font-size: 14px;
+  margin-top: 5px;
+  padding: 8px;
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 4px;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .pros-cons-header,
+  .pros-cons-content,
+  .pros-cons-inputs {
+    flex-direction: column;
+  }
+  
+  .header-divider,
+  .content-divider,
+  .input-divider {
+    width: 100%;
+    height: 2px;
+    margin: 10px 0;
+  }
+  
+  .pros-column,
+  .cons-column {
+    margin: 0 0 20px 0;
+    border-left: none;
+    border-top: 4px solid;
+  }
+  
+  .pros-column {
+    border-top-color: #22c55e;
+  }
+  
+  .cons-column {
+    border-top-color: #ef4444;
+  }
+}
