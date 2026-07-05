@@ -1,200 +1,85 @@
-import React, { useEffect, useRef } from "react";
-import Matter from "matter-js";
+import React from "react";
 
-function Scale({ prosData = [], consData = [] }) {
-  const sceneRef = useRef(null);
-  const engineRef = useRef(null);
-  const renderRef = useRef(null);
-  const leftPlatformRef = useRef(null);
-  const rightPlatformRef = useRef(null);
-  const prosObjectsRef = useRef([]);
-  const consObjectsRef = useRef([]);
+// ── geometry constants ──────────────────────────────────────────────────────
+const STROKE     = 2;
+const W          = 500;
+const H          = 440;
+const CX         = W / 2;           // 250 – horizontal center
 
-  useEffect(() => {
-    // Create engine
-    const engine = Matter.Engine.create();
-    engineRef.current = engine;
-    
-    // Disable gravity initially for smooth setup
-    engine.world.gravity.y = 0.8;
+const PIVOT_R    = 5;
+const PIVOT_CY   = 48;              // pivot circle center
 
-    // Create renderer
-    const render = Matter.Render.create({
-      element: sceneRef.current,
-      engine: engine,
-      options: {
-        width: 500,
-        height: 400,
-        wireframes: false,
-        background: 'transparent',
-        showAngleIndicator: false,
-        showVelocity: false,
-      }
-    });
-    renderRef.current = render;
+const BEAM_Y     = 48;              // horizontal beam
+const BEAM_LEFT  = 85;
+const BEAM_RIGHT = 415;
 
-    // Create scale structure
-    const ground = Matter.Bodies.rectangle(250, 380, 500, 20, { 
-      isStatic: true,
-      render: { fillStyle: '#8B4513' }
-    });
+const SHOULDER_Y = BEAM_Y + 0;    // short vertical drop at each beam end
+                                    // before strings branch (108)
+const TRAY_W     = 140;          
+const TRAY_H     = 52;
+const TRAY_TOP   = 258;
 
-    // Main support beam (vertical)
-    const support = Matter.Bodies.rectangle(250, 300, 8, 160, { 
-      isStatic: true,
-      render: { fillStyle: '#654321' }
-    });
+const POLE_BTMY  = 412;            // pole height
+const BASE_HALF  = 70;             // scale base
+// ────────────────────────────────────────────────────────────────────────────
 
-    // Balance beam (horizontal bar that can rotate)
-    const beam = Matter.Bodies.rectangle(250, 200, 200, 6, {
-      render: { fillStyle: '#654321' }
-    });
+export default function Scale({ style }) {
+  // tray left / right edges (trays are centered below each beam endpoint)
+  const lTrayL = BEAM_LEFT  - TRAY_W / 2;   // 30
+  const lTrayR = BEAM_LEFT  + TRAY_W / 2;   // 170
+  const rTrayL = BEAM_RIGHT - TRAY_W / 2;   // 330
+  const rTrayR = BEAM_RIGHT + TRAY_W / 2;   // 470
 
-    // Create constraint to attach beam to support (allowing rotation)
-    const beamConstraint = Matter.Constraint.create({
-      bodyA: support,
-      bodyB: beam,
-      pointA: { x: 0, y: -50 },
-      pointB: { x: 0, y: 0 },
-      length: 0,
-      stiffness: 1
-    });
-
-    // Left platform
-    const leftPlatform = Matter.Bodies.rectangle(180, 180, 80, 8, {
-      render: { fillStyle: '#D2691E' }
-    });
-    leftPlatformRef.current = leftPlatform;
-
-    // Right platform  
-    const rightPlatform = Matter.Bodies.rectangle(320, 180, 80, 8, {
-      render: { fillStyle: '#D2691E' }
-    });
-    rightPlatformRef.current = rightPlatform;
-
-    // Constraints to attach platforms to beam
-    const leftConstraint = Matter.Constraint.create({
-      bodyA: beam,
-      bodyB: leftPlatform,
-      pointA: { x: -70, y: 0 },
-      pointB: { x: 0, y: 0 },
-      length: 20,
-      stiffness: 0.8
-    });
-
-    const rightConstraint = Matter.Constraint.create({
-      bodyA: beam,
-      bodyB: rightPlatform,
-      pointA: { x: 70, y: 0 },
-      pointB: { x: 0, y: 0 },
-      length: 20,
-      stiffness: 0.8
-    });
-
-    // Add all bodies to world
-    Matter.World.add(engine.world, [
-      ground, support, beam, beamConstraint,
-      leftPlatform, rightPlatform, leftConstraint, rightConstraint
-    ]);
-
-    // Start the engine and renderer
-    Matter.Engine.run(engine);
-    Matter.Render.run(render);
-
-    // Cleanup function
-    return () => {
-      Matter.Render.stop(render);
-      Matter.Engine.clear(engine);
-      if (sceneRef.current && render.canvas) {
-        sceneRef.current.removeChild(render.canvas);
-      }
-    };
-  }, []);
-
-  // Update physics objects when pros/cons change
-  useEffect(() => {
-    if (!engineRef.current) return;
-
-    // Remove existing pros objects
-    prosObjectsRef.current.forEach(obj => {
-      Matter.World.remove(engineRef.current.world, obj);
-    });
-    prosObjectsRef.current = [];
-
-    // Remove existing cons objects
-    consObjectsRef.current.forEach(obj => {
-      Matter.World.remove(engineRef.current.world, obj);
-    });
-    consObjectsRef.current = [];
-
-    // Add pros objects (green circles on left platform)
-    prosData.forEach((pro, index) => {
-      const size = Math.max(8, pro.weight * 3); // Size based on weight
-      const x = 160 + (index % 3) * 15; // Arrange in rows
-      const y = 100 - Math.floor(index / 3) * 20;
-      
-      const prosObject = Matter.Bodies.circle(x, y, size, {
-        render: { 
-          fillStyle: '#28c95a',
-          strokeStyle: '#20b34e',
-          lineWidth: 2
-        },
-        restitution: 0.3,
-        friction: 0.8
-      });
-
-      Matter.World.add(engineRef.current.world, prosObject);
-      prosObjectsRef.current.push(prosObject);
-    });
-
-    // Add cons objects (red circles on right platform)
-    consData.forEach((con, index) => {
-      const size = Math.max(8, con.weight * 3); // Size based on weight
-      const x = 340 + (index % 3) * 15; // Arrange in rows
-      const y = 100 - Math.floor(index / 3) * 20;
-      
-      const consObject = Matter.Bodies.circle(x, y, size, {
-        render: { 
-          fillStyle: '#e74c3c',
-          strokeStyle: '#c0392b',
-          lineWidth: 2
-        },
-        restitution: 0.3,
-        friction: 0.8
-      });
-
-      Matter.World.add(engineRef.current.world, consObject);
-      consObjectsRef.current.push(consObject);
-    });
-
-  }, [prosData, consData]);
+  const ln = {
+    stroke: "#1a1a1a",
+    strokeWidth: STROKE,
+    strokeLinecap: "square",
+  };
 
   return (
-    <div className="scale-visualization">
-      <div 
-        ref={sceneRef} 
-        style={{ 
-          border: '2px solid #ddd', 
-          borderRadius: '12px',
-          backgroundColor: '#f8f9fa'
-        }} 
-      />
-      <div style={{ 
-        marginTop: '16px', 
-        textAlign: 'center',
-        fontFamily: '"Permanent Marker", cursive',
-        fontSize: '1.1em',
-        color: '#333'
-      }}>
-        <div>Pros: {prosData.length} items</div>
-        <div>Cons: {consData.length} items</div>
-        <div style={{ fontSize: '0.9em', marginTop: '8px' }}>
-          Total Weight - Pros: {prosData.reduce((sum, p) => sum + p.weight, 0)} | 
-          Cons: {consData.reduce((sum, c) => sum + c.weight, 0)}
-        </div>
-      </div>
+    <div style={{ position: "absolute", userSelect: "none", ...style }}>
+      <svg
+        width={W}
+        height={H}
+        viewBox={`0 0 ${W} ${H}`}
+      >
+        {/* ── central pole (from bottom of pivot circle down to base) ── */}
+        <line x1={CX} y1={PIVOT_CY + PIVOT_R} x2={CX} y2={POLE_BTMY} {...ln} />
+
+        {/* ── horizontal beam ── */}
+        <line x1={BEAM_LEFT} y1={BEAM_Y} x2={BEAM_RIGHT} y2={BEAM_Y} {...ln} />
+
+        {/* ── shoulders: short vertical drop at each beam end ── */}
+        <line x1={BEAM_LEFT}  y1={BEAM_Y} x2={BEAM_LEFT}  y2={SHOULDER_Y} {...ln} />
+        <line x1={BEAM_RIGHT} y1={BEAM_Y} x2={BEAM_RIGHT} y2={SHOULDER_Y} {...ln} />
+
+        {/* ── T-base ── */}
+        <line x1={CX - BASE_HALF} y1={POLE_BTMY} x2={CX + BASE_HALF} y2={POLE_BTMY} {...ln} />
+
+        {/* ── left strings + tray ── */}
+        <line x1={BEAM_LEFT} y1={SHOULDER_Y} x2={lTrayL} y2={TRAY_TOP} {...ln} />
+        <line x1={BEAM_LEFT} y1={SHOULDER_Y} x2={lTrayR} y2={TRAY_TOP} {...ln} />
+        <rect
+          x={lTrayL} y={TRAY_TOP}
+          width={TRAY_W} height={TRAY_H}
+          fill="none" stroke="#1a1a1a" strokeWidth={STROKE}
+        />
+
+        {/* ── right strings + tray ── */}
+        <line x1={BEAM_RIGHT} y1={SHOULDER_Y} x2={rTrayL} y2={TRAY_TOP} {...ln} />
+        <line x1={BEAM_RIGHT} y1={SHOULDER_Y} x2={rTrayR} y2={TRAY_TOP} {...ln} />
+        <rect
+          x={rTrayL} y={TRAY_TOP}
+          width={TRAY_W} height={TRAY_H}
+          fill="none" stroke="#1a1a1a" strokeWidth={STROKE}
+        />
+
+        {/* ── pivot circle (drawn last so it sits on top of the pole) ── */}
+        <circle
+          cx={CX} cy={PIVOT_CY} r={PIVOT_R}
+          fill="none" stroke="#1a1a1a" strokeWidth={STROKE}
+        />
+      </svg>
     </div>
   );
 }
-
-export default Scale;
