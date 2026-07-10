@@ -1,8 +1,10 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+test('renders the pros and cons board', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  expect(screen.getByText('PROS')).toBeInTheDocument();
+  expect(screen.getByText('CONS')).toBeInTheDocument();
+  // default example decision
+  expect(screen.getByText('Homework will be done')).toBeInTheDocument();
 });
