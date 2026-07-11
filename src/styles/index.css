@@ -103,20 +103,26 @@ code {
   background: rgba(43, 43, 43, 0.45);
 }
 /* PROS scrolls on the LEFT (rtl flips the scrollbar side; rows flip back),
-   CONS on the right — the bars frame the T-chart symmetrically, with a
-   little breathing room between bar and text */
+   CONS on the right — the bars ride the T-chart's outer edges. Each column
+   reserves an INNER gutter (toward the divider) so the grip handle has a lane
+   that never crowds either the handwriting or the scrollbar. */
 .list-pro {
   direction: rtl;
-  padding-left: 12px;
+  padding-right: 20px; /* inner gutter (toward divider) for the grip */
+  padding-left: 14px; /* keep the text clear of the left scrollbar */
 }
 .list-pro > * {
   direction: ltr;
 }
 .list-con {
-  padding-right: 12px;
+  padding-left: 20px; /* inner gutter (toward divider) for the grip */
+  padding-right: 14px; /* keep the text clear of the right scrollbar */
 }
 
-/* reason rows: subtle lift on hover, grabbing cursor while held */
+/* reason rows: subtle lift on hover; the text itself is always editable, so
+   dragging to the trash happens from the grip that fades in on the row's
+   OUTER margin — left for PROS, right for CONS, mirroring where each column
+   keeps its breathing room so the handle never crowds the handwriting. */
 .reason {
   padding: 0 8px;
   margin: 0 -8px;
@@ -126,8 +132,42 @@ code {
 .reason:hover {
   background: rgba(29, 29, 29, 0.05);
 }
-.reason:active {
+
+/* the handle: a short grey capsule, like a little drag-tab you tug. A neutral
+   app affordance — uniform grey, unrelated to the reason's weight/ink — that
+   hugs the pill's inner edge (toward the divider): right for PROS, left for
+   CONS, so the two mirror across the T. Fades in only while the row is
+   hovered. Rows carry the side class so the grip knows which edge to hug. */
+.grip {
+  position: absolute;
+  top: 50%;
+  width: 5px;
+  height: 20px;
+  transform: translateY(-50%) scaleY(0.55);
+  border-radius: 3px;
+  background: #9a9a97;
+  opacity: 0;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.grip-pro {
+  right: -7px;
+}
+.grip-con {
+  left: -7px;
+}
+.reason:hover .grip {
+  opacity: 0.55;
+  transform: translateY(-50%) scaleY(1);
+}
+.grip:hover {
+  opacity: 0.9 !important;
+}
+.grip:active {
   cursor: grabbing;
+  opacity: 1 !important;
 }
 
 /* the composer's placeholder is a faint pencil hint in the side's own ink,

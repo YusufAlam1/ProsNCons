@@ -65,6 +65,7 @@ export default function Board() {
   const overTrashRef = useRef(false);
   const titleRef = useRef(null);
   const popTimers = useRef([]);
+  const deletingRef = useRef(new Set()); // reason ids mid-pop, so delete is idempotent
 
   useEffect(() => {
     const fit = () => {
@@ -113,18 +114,7 @@ export default function Board() {
       overTrashRef.current = false;
       setDragId(null);
       setOverTrash(false);
-      if (del) {
-        // the row leaves the list at once, but the ball stays on the scale
-        // just long enough to pop — only then is the reason really removed
-        // and the beam re-settles
-        setPopping((p) => [...p, id]);
-        popTimers.current.push(
-          setTimeout(() => {
-            setReasons((rs) => rs.filter((r) => r.id !== id));
-            setPopping((p) => p.filter((x) => x !== id));
-          }, POP_MS)
-        );
-      }
+      if (del) deleteReason(id);
     };
 
     window.addEventListener("resize", fit);
@@ -173,6 +163,24 @@ export default function Board() {
         r.id === id ? { ...r, text, weight: clampWeight(+weight || 1) } : r
       )
     );
+
+  // the row leaves the list at once, but the ball stays on the scale just
+  // long enough to pop — only then is the reason really removed and the beam
+  // re-settles. Shared by the trash drop and by emptying a reason's text, and
+  // idempotent: a reason already mid-pop ignores repeat calls (the keyboard
+  // delete and the follow-on blur can both fire for one row).
+  const deleteReason = (id) => {
+    if (deletingRef.current.has(id)) return;
+    deletingRef.current.add(id);
+    setPopping((p) => [...p, id]);
+    popTimers.current.push(
+      setTimeout(() => {
+        setReasons((rs) => rs.filter((r) => r.id !== id));
+        setPopping((p) => p.filter((x) => x !== id));
+        deletingRef.current.delete(id);
+      }, POP_MS)
+    );
+  };
 
   const { s, sw, sh } = dims;
 
@@ -234,6 +242,7 @@ export default function Board() {
     onRowPointerDown,
     onUpdateReason: updateReason,
     onAddReason: addReason,
+    onDeleteReason: deleteReason,
   };
 
   return (
@@ -375,13 +384,15 @@ export default function Board() {
           </div>
         </div>
 
-        {/* PROS column */}
-        <div style={{ position: "absolute", left: chartLeft + 8, top: colTop, width: midX - chartLeft - 26, zIndex: 2 }}>
+        {/* PROS column — its left edge (where the scrollbar rides) sits on the
+            crossbar's left end; a small right gap keeps text off the divider */}
+        <div style={{ position: "absolute", left: chartLeft, top: colTop, width: midX - chartLeft - 16, zIndex: 2 }}>
           <ReasonColumn side="pro" reasons={proRows} {...columnProps} />
         </div>
 
-        {/* CONS column */}
-        <div style={{ position: "absolute", left: midX + 18, top: colTop, width: chartRight - midX - 26, zIndex: 2 }}>
+        {/* CONS column — its right edge (scrollbar) sits on the crossbar's right
+            end; a small left gap keeps text off the divider */}
+        <div style={{ position: "absolute", left: midX + 16, top: colTop, width: chartRight - midX - 16, zIndex: 2 }}>
           <ReasonColumn side="con" reasons={conRows} {...columnProps} />
         </div>
 
