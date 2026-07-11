@@ -1,62 +1,58 @@
 import React from "react";
+import { rLine, rPath } from "../lib/rough";
 
 const DK = "#2b2b2b";
 
-// Clean-SVG trash can. The lid tilts open while a reason is dragged over it,
-// and the "drop to delete" hint only shows while dragging.
-export default function Trash({ open, dragging }) {
+const paint = (ds, sw, keyPrefix) =>
+  ds.map((d, i) => (
+    <path
+      key={keyPrefix + i}
+      d={d}
+      fill="none"
+      stroke={DK}
+      strokeWidth={sw}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  ));
+
+// Sketchy strokes are seeded/deterministic — generate once at module load.
+const BODY_PATHS = [
+  ...rPath("M12 28 L18 82 Q18 86 22 86 L52 86 Q56 86 56 82 L62 28", 2, 3),
+  ...rLine(24, 38, 26, 74, 7, 2.5),
+  ...rLine(37, 38, 37, 74, 8, 2.5),
+  ...rLine(50, 38, 48, 74, 9, 2.5),
+];
+const LID_PATHS = [
+  ...rLine(6, 26, 68, 26, 4, 3),
+  ...rPath("M30 26 L32 17 L44 17 L46 26", 5, 3),
+];
+
+// Hand-drawn trash can. While a reason hovers over it, the lid swings UP,
+// hinged at its left corner, and the whole can leans in slightly.
+export default function Trash({ open }) {
   return (
-    <div
+    <svg
+      width={74}
+      height={96}
+      viewBox="0 0 74 96"
       style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        gap: 2,
+        overflow: "visible",
+        transform: `scale(${open ? 1.1 : 1})`,
+        transformOrigin: "50% 100%",
+        transition: "transform .22s ease",
       }}
     >
-      <svg width={74} height={96} viewBox="0 0 74 96" style={{ overflow: "visible" }}>
-        {/* bucket body */}
-        <path
-          d="M12 28 L18 82 Q18 86 22 86 L52 86 Q56 86 56 82 L62 28"
-          fill="none"
-          stroke={DK}
-          strokeWidth={3}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-        <line x1={24} y1={38} x2={26} y2={74} stroke={DK} strokeWidth={2.5} strokeLinecap="round" />
-        <line x1={37} y1={38} x2={37} y2={74} stroke={DK} strokeWidth={2.5} strokeLinecap="round" />
-        <line x1={50} y1={38} x2={48} y2={74} stroke={DK} strokeWidth={2.5} strokeLinecap="round" />
-
-        {/* lid (rotates open) */}
-        <g
-          style={{
-            transformOrigin: "64px 26px",
-            transform: `rotate(${open ? -42 : 0}deg)`,
-            transition: "transform .22s ease",
-          }}
-        >
-          <line x1={6} y1={26} x2={68} y2={26} stroke={DK} strokeWidth={3} strokeLinecap="round" />
-          <path
-            d="M30 26 L32 17 L44 17 L46 26"
-            fill="none"
-            stroke={DK}
-            strokeWidth={3}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-          />
-        </g>
-      </svg>
-      <div
+      {paint(BODY_PATHS, 3, "tb")}
+      <g
         style={{
-          font: "700 12px Kalam, Caveat, cursive",
-          color: open ? "#2b2b2b" : "rgba(0,0,0,.4)",
-          opacity: dragging ? 1 : 0,
-          transition: "opacity .2s",
+          transformOrigin: "6px 26px",
+          transform: `rotate(${open ? -42 : 0}deg)`,
+          transition: "transform .22s ease",
         }}
       >
-        drop to delete
-      </div>
-    </div>
+        {paint(LID_PATHS, 3, "tl")}
+      </g>
+    </svg>
   );
 }

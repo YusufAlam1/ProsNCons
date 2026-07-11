@@ -16,32 +16,135 @@ code {
     monospace;
 }
 
-/* balls drop into the pan when a reason is added */
-@keyframes drop {
-  0% {
-    transform: translateY(-300px);
-    opacity: 0;
-  }
-  60% {
-    opacity: 1;
-  }
-  80% {
-    transform: translateY(5px);
-  }
-  100% {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-.ball {
-  animation: drop 0.6s cubic-bezier(0.3, 1.4, 0.6, 1) both;
-}
-
 [contenteditable]:focus {
   outline: none;
 }
 
+/* faint hint inside the empty editable title */
+.title-edit:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(36, 86, 164, 0.32);
+}
+/* …but never while actually editing — the hint must not pose as typed text */
+.title-edit[contenteditable="true"]:empty::before {
+  content: none;
+}
+
+/* ball whose reason is being dragged toward the trash: washed out + pulsing
+   (opacity/filter only — its position belongs to the physics loop) */
+@keyframes ballPulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+.ball-marked {
+  filter: saturate(0.45) brightness(1.15);
+  animation: ballPulse 0.8s ease-in-out infinite;
+}
+
+/* the iMessage-unsend poof: the bubble puffs up a touch, then collapses,
+   while a ring of droplets scatters outward and dissolves. The physics
+   wrapper keeps holding the ball's place on the scale throughout. */
+@keyframes popCore {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  22% {
+    transform: scale(1.14);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.15);
+    opacity: 0;
+  }
+}
+.pop-core {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: popCore 0.32s cubic-bezier(0.35, 0.6, 0.4, 1) forwards;
+}
+@keyframes popParticle {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.9;
+  }
+  100% {
+    transform: translate(var(--px), var(--py)) scale(0.15);
+    opacity: 0;
+  }
+}
+.pop-particle {
+  animation: popParticle 0.38s cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+}
+
+/* reason list scrollbar, themed like a pencil stroke in the margin.
+   Only ::-webkit-scrollbar styling — setting scrollbar-width/color would
+   make Chromium ignore it. scrollbar-gutter reserves the lane up front so
+   nothing shifts when the bar appears. */
+.reason-list {
+  scrollbar-gutter: stable;
+}
+.reason-list::-webkit-scrollbar {
+  width: 7px;
+}
+.reason-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+.reason-list::-webkit-scrollbar-thumb {
+  background: rgba(43, 43, 43, 0.25);
+  border-radius: 8px;
+}
+.reason-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(43, 43, 43, 0.45);
+}
+/* PROS scrolls on the LEFT (rtl flips the scrollbar side; rows flip back),
+   CONS on the right — the bars frame the T-chart symmetrically, with a
+   little breathing room between bar and text */
+.list-pro {
+  direction: rtl;
+  padding-left: 12px;
+}
+.list-pro > * {
+  direction: ltr;
+}
+.list-con {
+  padding-right: 12px;
+}
+
+/* reason rows: subtle lift on hover, grabbing cursor while held */
+.reason {
+  padding: 0 8px;
+  margin: 0 -8px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+.reason:hover {
+  background: rgba(29, 29, 29, 0.05);
+}
 .reason:active {
   cursor: grabbing;
+}
+
+/* the ＋ buttons perk up on hover */
+.add-plus {
+  transition: transform 0.15s ease;
+}
+.add-plus:hover {
+  transform: scale(1.2) rotate(6deg);
+}
+
+/* spinner arrows clash with the handwritten look */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }

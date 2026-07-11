@@ -1,146 +1,239 @@
-import React from "react";
-import {
-  shade,
-  shadeStroke,
-  ballRadius,
-  netWeight,
-  tiltFor,
-  packBalls,
-} from "../lib/scaleMath";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { rLine, rPath } from "../lib/rough";
+import { shade, shadeStroke, ballRadius } from "../lib/scaleMath";
+import { GEO, createScaleSim } from "../lib/scalePhysics";
 
-// ── geometry (matches the exported design's 560×648 scale) ──────────────────
-const VW = 560;
-const VH = 648;
-const CX = 280; // pivot x
-const CY = 58; // pivot / beam y
-const L = 176; // half beam length
-const POLE_BTM = 636;
-const CHAIN_H = 110; // drop from beam to pan rim
-const PW = 100; // pan half-width
-const DEPTH = 110; // pan depth
-const FLOOR_Y = CHAIN_H + DEPTH - 24; // where balls rest, pan-local
+// A classic balance: wide beam pivoting on a pole, long chain triangles, and
+// hanging cradle bowls. All geometry comes from GEO so the SVG and the
+// physics bodies are the same shapes — what you see is the hard barrier the
+// balls actually collide with.
+const { VW, VH, CX, CY, L, CHAIN_H, PW, POLE_BTM, BASE_HALF, BOWL_R } = GEO;
 const DK = "#2b2b2b"; // ink color
-const TRANS = "transform .85s cubic-bezier(.34,1.4,.5,1)";
+const STEP_FALLBACK = 1000 / 60; // dt for the very first frame
 
-const line = (x1, y1, x2, y2, sw = 3, key) => (
-  <line
-    key={key}
-    x1={x1}
-    y1={y1}
-    x2={x2}
-    y2={y2}
-    stroke={DK}
-    strokeWidth={sw}
-    strokeLinecap="round"
-  />
-);
+const paint = (ds, sw, keyPrefix) =>
+  ds.map((d, i) => (
+    <path
+      key={keyPrefix + i}
+      d={d}
+      fill="none"
+      stroke={DK}
+      strokeWidth={sw}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  ));
 
-// A "box" pan: two chains angling in to the rim, then a rectangular bucket.
-function Pan({ baseX, dx, dy, balls }) {
-  const pos = packBalls(balls, PW, FLOOR_Y);
-  return (
-    <g
-      style={{
-        transform: `translate(${baseX + dx}px,${CY + dy}px)`,
-        transition: TRANS,
-      }}
-    >
-      {line(0, 0, -PW, CHAIN_H, 3, "cl")}
-      {line(0, 0, PW, CHAIN_H, 3, "cr")}
-      <path
-        d={`M${-PW} ${CHAIN_H} L${-PW} ${CHAIN_H + DEPTH - 20} L${PW} ${
-          CHAIN_H + DEPTH - 20
-        } L${PW} ${CHAIN_H}`}
-        fill="none"
-        stroke={DK}
-        strokeWidth={3}
-        strokeLinejoin="round"
-      />
-      {line(-PW, CHAIN_H, PW, CHAIN_H, 2.5, "rim")}
-      {balls.map((b) => {
-        const p = pos[b.id] || { x: 0, y: FLOOR_Y };
-        return (
-          <circle
-            key={b.id}
-            className="ball"
-            cx={p.x}
-            cy={p.y}
-            r={b.r}
-            fill={b.fill}
-            stroke={b.stroke}
-            strokeWidth={2}
-          />
+// Rough strokes are deterministic (seeded), so generate once at module load.
+const STRUCT_PATHS = [
+  ...rLine(CX, CY, CX, POLE_BTM, 21, 4),
+  ...rLine(CX - BASE_HALF, POLE_BTM, CX + BASE_HALF, POLE_BTM, 22, 4),
+];
+const BEAM_PATHS = rLine(-L, 0, L, 0, 31, 4.5);
+
+// Hanging pan, in pan-local coords: origin = rim centre, so the beam hook is
+// at (0, -CHAIN_H). The two chains end EXACTLY on the rim corners (±PW, 0) —
+// the same points the back-rim arc and the cradle bowl arc start from.
+const panPaths = (seed) => [
+  ...rLine(0, -CHAIN_H, -PW, 0, seed, 2.5),
+  ...rLine(0, -CHAIN_H, PW, 0, seed + 1, 2.5),
+  ...rPath(`M ${-PW} 0 Q 0 16 ${PW} 0`, seed + 2, 2.5),
+  ...rPath(`M ${-PW} 0 A ${BOWL_R} ${BOWL_R} 0 1 0 ${PW} 0`, seed + 3, 3),
+];
+const PAN_PRO_PATHS = panPaths(40);
+const PAN_CON_PATHS = panPaths(60);
+
+// Scatter directions for the unsend-style poof: a loose ring with a slight
+// upward bias, like the bubble bursting into mist.
+const POP_DIRS = Array.from({ length: 7 }, (_, i) => {
+  const a = ((i * 51 - 100) * Math.PI) / 180;
+  return { x: Math.cos(a), y: Math.sin(a) - 0.25 };
+});
+
+function Scale({ pros, cons, onLanded, markedId, popping }) {
+  // what has physically touched down — drives the pivot badge
+  const [landed, setLanded] = useState({ net: 0, count: 0 });
+
+  const simRef = useRef(null);
+  const ballEls = useRef(new Map()); // reason id → wrapper <g> element
+  const beamRef = useRef(null);
+  const panProRef = useRef(null);
+  const panConRef = useRef(null);
+
+  const reasons = useMemo(() => [...pros, ...cons], [pros, cons]);
+  const reasonsRef = useRef(reasons);
+  reasonsRef.current = reasons;
+  const onLandedRef = useRef(onLanded);
+  onLandedRef.current = onLanded;
+
+  useEffect(() => {
+    const sim = createScaleSim();
+    simRef.current = sim;
+    sim.onLanded((info) => {
+      setLanded(info);
+      if (onLandedRef.current) onLandedRef.current(info);
+    });
+    sim.syncReasons(reasonsRef.current);
+
+    // Headless environments (jsdom) just render the static frame.
+    if (typeof window === "undefined" || !window.requestAnimationFrame) {
+      return () => {
+        sim.destroy();
+        simRef.current = null;
+      };
+    }
+
+    let raf = 0;
+    let last = 0;
+    const frame = (t) => {
+      sim.step(last ? t - last : STEP_FALLBACK);
+      last = t;
+      const s = sim.snapshot();
+      if (beamRef.current) {
+        beamRef.current.setAttribute(
+          "transform",
+          `translate(${CX} ${CY}) rotate(${s.beamDeg})`
         );
-      })}
-    </g>
+      }
+      if (panProRef.current) {
+        panProRef.current.setAttribute("transform", `translate(${s.pro.x} ${s.pro.y})`);
+      }
+      if (panConRef.current) {
+        panConRef.current.setAttribute("transform", `translate(${s.con.x} ${s.con.y})`);
+      }
+      const present = new Set();
+      for (const b of s.balls) {
+        present.add(b.id);
+        const el = ballEls.current.get(b.id);
+        if (el) {
+          el.setAttribute("transform", `translate(${b.x} ${b.y})`);
+          // reveal only now — the loop is the single source of ball paint, so
+          // a ball can never flash up at a stale position before its first
+          // physics frame; it always enters already falling, from the top
+          el.setAttribute("visibility", "visible");
+        }
+      }
+      // balls with no body (still queued, or spilled off the page) stay hidden
+      for (const [id, el] of ballEls.current) {
+        if (!present.has(id)) el.setAttribute("visibility", "hidden");
+      }
+      raf = window.requestAnimationFrame(frame);
+    };
+    raf = window.requestAnimationFrame(frame);
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+      sim.destroy();
+      simRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (simRef.current) simRef.current.syncReasons(reasons);
+  }, [reasons]);
+
+  // Each ball = a wrapper <g> the rAF loop moves (and reveals), plus inner
+  // shapes that own looks + CSS effects. Splitting them means the pop/marked
+  // animations can transform the circle without ever fighting the physics
+  // transform on the wrapper. Balls render hidden until the sim owns them.
+  // The circle is drawn 1px inside the physics radius so its 2px stroke stays
+  // within the collision circle — resting balls touch, ink never overlaps.
+  //
+  // A popping ball bursts iMessage-unsend style: the bubble puffs up a hair,
+  // collapses, and a ring of little droplets scatters outward and dissolves.
+  const ballsLayer = useMemo(
+    () => (
+      <g>
+        {reasons.map((r) => {
+          const rad = ballRadius(r.weight) - 1;
+          const fill = shade(r.side, r.weight);
+          const stroke = shadeStroke(r.side, r.weight);
+          return (
+            <g
+              key={r.id}
+              visibility="hidden"
+              ref={(el) => {
+                if (el) ballEls.current.set(r.id, el);
+                else ballEls.current.delete(r.id);
+              }}
+            >
+              {popping.includes(r.id) ? (
+                <g>
+                  <circle className="pop-core" r={rad} fill={fill} stroke={stroke} strokeWidth={2} />
+                  {POP_DIRS.map((d, i) => (
+                    <circle
+                      key={i}
+                      className="pop-particle"
+                      cx={d.x * rad * 0.5}
+                      cy={d.y * rad * 0.5}
+                      r={Math.max(2.5, rad * (i % 2 ? 0.16 : 0.24))}
+                      fill={fill}
+                      style={{
+                        "--px": `${d.x * rad * 2.4}px`,
+                        "--py": `${d.y * rad * 2.4 - rad * 0.6}px`,
+                      }}
+                    />
+                  ))}
+                </g>
+              ) : (
+                <circle
+                  className={markedId === r.id ? "ball-marked" : undefined}
+                  r={rad}
+                  fill={fill}
+                  stroke={stroke}
+                  strokeWidth={2}
+                />
+              )}
+            </g>
+          );
+        })}
+      </g>
+    ),
+    [reasons, markedId, popping]
   );
-}
 
-const toBalls = (arr) =>
-  arr.map((r) => ({
-    id: r.id,
-    r: ballRadius(r.weight),
-    fill: shade(r.side, r.weight),
-    stroke: shadeStroke(r.side, r.weight),
-  }));
-
-export default function Scale({ pros, cons, sensitivity = 10 }) {
-  const net = netWeight(pros, cons);
-  const tilt = tiltFor(net, sensitivity);
-  const mag = Math.abs(net);
-
-  // beam tilt shifts each pan's attach point so pans hang level
-  const a = (tilt * Math.PI) / 180;
-  const dLX = L * (1 - Math.cos(a));
-  const dLY = L * Math.sin(a);
-  const dRX = -L * (1 - Math.cos(a));
-  const dRY = -L * Math.sin(a);
-
-  const pivotColor = net === 0 ? "#9a9a9a" : shade(net > 0 ? "pro" : "con", mag);
+  const mag = Math.abs(landed.net);
+  const pivotColor =
+    landed.net === 0 ? "#9a9a9a" : shade(landed.net > 0 ? "pro" : "con", mag);
 
   return (
     <svg
       viewBox={`0 0 ${VW} ${VH}`}
       preserveAspectRatio="xMidYMid meet"
-      style={{ width: "100%", height: "100%" }}
+      // overflow visible: falling balls are drawn above the viewBox, so they
+      // appear to drop in from the top of the page
+      style={{ width: "100%", height: "100%", overflow: "visible" }}
     >
       {/* structural pole + base */}
-      <g>
-        {line(CX, CY, CX, POLE_BTM, 4, "pole")}
-        {line(CX - 52, POLE_BTM, CX + 52, POLE_BTM, 4, "base")}
-      </g>
+      <g>{paint(STRUCT_PATHS, 4, "st")}</g>
 
-      <Pan baseX={CX - L} dx={dLX} dy={dLY} balls={toBalls(pros)} />
-      <Pan baseX={CX + L} dx={dRX} dy={dRY} balls={toBalls(cons)} />
+      {/* physics balls — BEHIND the cradles, so the bowls' ink always draws
+          over them: balls read as sitting inside the pan, never on top of it */}
+      {ballsLayer}
+
+      {/* hanging pans (translated every frame by the physics loop) */}
+      <g ref={panProRef} transform={`translate(${CX - L} ${CY + CHAIN_H})`}>
+        {paint(PAN_PRO_PATHS, 3, "pp")}
+      </g>
+      <g ref={panConRef} transform={`translate(${CX + L} ${CY + CHAIN_H})`}>
+        {paint(PAN_CON_PATHS, 3, "pc")}
+      </g>
 
       {/* tilting beam */}
-      <g
-        style={{
-          transform: `translate(${CX}px,${CY}px) rotate(${-tilt}deg)`,
-          transformOrigin: "0px 0px",
-          transition: TRANS,
-        }}
-      >
-        {line(-L, 0, L, 0, 4, "beam")}
+      <g ref={beamRef} transform={`translate(${CX} ${CY})`}>
+        {paint(BEAM_PATHS, 4.5, "bm")}
       </g>
 
-      {/* pivot badge with net magnitude */}
+      {/* pivot badge with the landed net magnitude */}
       <g>
-        <circle
-          cx={CX}
-          cy={CY}
-          r={26}
-          fill={pivotColor}
-          stroke={DK}
-          strokeWidth={2.5}
-        />
+        <circle cx={CX} cy={CY} r={26} fill={pivotColor} stroke={DK} strokeWidth={2.5} />
         <text
           x={CX}
           y={CY + 8}
           textAnchor="middle"
-          fontFamily="Caveat, cursive"
+          fontFamily="Kalam, Caveat, cursive"
           fontWeight={700}
-          fontSize={30}
+          fontSize={26}
           fill="#fff"
         >
           {mag}
@@ -149,3 +242,7 @@ export default function Scale({ pros, cons, sensitivity = 10 }) {
     </svg>
   );
 }
+
+// memo: the scale only re-renders when the reasons actually change,
+// not on every drag pointermove.
+export default React.memo(Scale);

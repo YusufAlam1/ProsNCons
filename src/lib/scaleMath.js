@@ -1,8 +1,9 @@
 // ── Visual math for the decision scale ──────────────────────────────────────
 // Ported from the exported design prototype (Pros N Cons.dc.html). These pure
-// helpers define how a reason's 1–10 weight maps to size/color, how the beam
-// tilts, and how balls settle into a pan. Kept framework-free so both the
-// Scale SVG and the reason rows can share them.
+// helpers define how a reason's 1–10 weight maps to size/color and how far
+// the beam tilts. Kept framework-free so the Scale, the physics sim
+// (scalePhysics.js) and the reason rows can all share them. How balls FALL
+// and settle is matter-js physics now — see scalePhysics.js.
 
 export const clampWeight = (w) => Math.max(1, Math.min(10, w));
 
@@ -36,49 +37,4 @@ export function verdictFor(net) {
   if (net > 0) return { word: "FAVORS", color: shade("pro", mag) };
   if (net < 0) return { word: "DISFAVORS", color: shade("con", mag) };
   return { word: "BALANCES", color: "#8a8a8a" };
-}
-
-// ── Deterministic gravity settling ──────────────────────────────────────────
-// Each ball drops and rests on the floor or on top of already-placed balls
-// (no overlap). Returns { [id]: {x, y} } in pan-local coordinates where x=0 is
-// the pan center and y grows downward. `panWidth` is the half-width bound.
-export function packBalls(balls, panWidth, floorY) {
-  const half = panWidth - 8;
-  const steps = 72;
-  const placed = [];
-  const pos = {};
-  for (const b of balls) {
-    const r = b.r;
-    let xmin = -half + r;
-    let xmax = half - r;
-    if (xmax < xmin) {
-      xmin = 0;
-      xmax = 0;
-    }
-    let best = null;
-    for (let i = 0; i <= steps; i++) {
-      const x = xmin + (xmax - xmin) * (steps ? i / steps : 0);
-      let y = floorY - r; // resting on the flat floor
-      for (const q of placed) {
-        // or resting on top of an existing ball
-        const dx = x - q.x;
-        const rr = r + q.r;
-        if (Math.abs(dx) < rr) {
-          const yy = q.y - Math.sqrt(rr * rr - dx * dx);
-          if (yy < y) y = yy;
-        }
-      }
-      // pick the deepest rest (largest y); tie -> closest to centre
-      if (
-        !best ||
-        y > best.y + 0.02 ||
-        (Math.abs(y - best.y) <= 0.02 && Math.abs(x) < Math.abs(best.x))
-      ) {
-        best = { x, y };
-      }
-    }
-    placed.push({ x: best.x, y: best.y, r });
-    pos[b.id] = { x: best.x, y: best.y };
-  }
-  return pos;
 }
