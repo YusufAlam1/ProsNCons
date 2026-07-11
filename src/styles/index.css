@@ -130,12 +130,11 @@ code {
   cursor: grabbing;
 }
 
-/* the ＋ buttons perk up on hover */
-.add-plus {
-  transition: transform 0.15s ease;
-}
-.add-plus:hover {
-  transform: scale(1.2) rotate(6deg);
+/* the composer's placeholder is a faint pencil hint in the side's own ink,
+   inviting a click on the first empty line — and it disappears once focused */
+.composer textarea::placeholder {
+  color: var(--ph, rgba(0, 0, 0, 0.28));
+  font-style: italic;
 }
 
 /* spinner arrows clash with the handwritten look */

@@ -43,3 +43,4 @@ Single-screen React 19 app. `App` renders one component, `Board`, which owns ess
 - **The rAF loop, not React, owns the animated SVG transforms** (beam, pans, balls in `Scale.js`). Per-ball JSX `transform` values are constants (an off-screen parking spot) so reconciliation never clobbers live physics positions. If you add animated elements, follow the same pattern: static JSX + a ref the loop writes to.
 - **The backend is not connected to the frontend.** Weights are entered by hand in the add form; nothing in `src/` calls `/api/weight`. The Express + OpenAI weighting server exists but is standalone. Wiring it in (auto-weighting a reason on add) is an obvious next step.
 - **The root `README.md` is aspirational and inaccurate.** It describes a Python/FastAPI + TextBlob backend and Chart.js/Axios frontend; the real stack is an Express/OpenAI backend and a custom-SVG React frontend. Trust the code over that README.
+ 

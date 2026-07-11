@@ -13,7 +13,9 @@ const W = 1320;
 const H = 840;
 
 // Ruled-line rhythm of the paper. Everything on the page snaps to this.
-const RULE = 44;
+// Tighter than a college rule so the page reads as real lined paper — more
+// lines, less air per line (the reason rows in ReasonColumn share this rhythm).
+const RULE = 35;
 
 // Lined-paper background: red margin rule + white header strip + ruled lines.
 const PAPER_BG = [
@@ -44,9 +46,6 @@ export default function Board() {
   const [title, setTitle] = useState("");
   const [editingTitle, setEditingTitle] = useState(false);
   const [reasons, setReasons] = useState([]);
-  const [adding, setAdding] = useState(null); // 'pro' | 'con' | null
-  const [draftText, setDraftText] = useState("");
-  const [draftWeight, setDraftWeight] = useState(5);
   const [dims, setDims] = useState({ s: 1, sw: W, sh: H });
   // what has physically landed on the scale — reported up by the physics sim
   const [landed, setLanded] = useState({ net: 0, count: 0 });
@@ -157,35 +156,15 @@ export default function Board() {
     pendingRef.current = { r, sx: e.clientX, sy: e.clientY };
   };
 
-  const openAdd = (side) => {
-    setAdding(side);
-    setDraftText("");
-    setDraftWeight(5);
-  };
-
-  const submitAdd = () => {
-    if (!adding) return;
-    const t = (draftText || "").trim();
-    if (!t) {
-      setAdding(null);
-      return;
-    }
+  // a reason is committed straight from a column's composer (Enter / blur)
+  const addReason = (side, text, weight) => {
+    const t = (text || "").trim();
+    if (!t) return;
     nid.current += 1;
-    const nr = { id: nid.current, side: adding, text: t, weight: clampWeight(+draftWeight || 1) };
-    setReasons((rs) => [...rs, nr]);
-    setAdding(null);
-    setDraftText("");
-  };
-
-  const onDraftKey = (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      submitAdd();
-    }
-    if (e.key === "Escape") {
-      setAdding(null);
-      setDraftText("");
-    }
+    setReasons((rs) => [
+      ...rs,
+      { id: nid.current, side, text: t, weight: clampWeight(+weight || 1) },
+    ]);
   };
 
   const updateReason = (id, text, weight) =>
@@ -204,15 +183,17 @@ export default function Board() {
   const chartLeft = 110;
   const chartRight = Math.min(900, scaleLeft - 26);
   const midX = Math.round((chartLeft + chartRight) / 2);
-  const headerTop = 4 * RULE + 1; // header row: PROS / CONS on the 2nd rule
-  const crossTop = 5 * RULE; // crossbar drawn ON the ruled line below them
+  // With the tighter rule the header/crossbar sit one rule lower so the top of
+  // the page (title, date, headings) keeps roughly its original breathing room.
+  const headerTop = 5 * RULE + 1; // header row: PROS / CONS heading
+  const crossTop = 6 * RULE; // crossbar drawn ON the ruled line below them
   const colTop = crossTop; // reason rows hang right under the crossbar
   // the divider stops level with the scale's base line
   const dividerBottom = 128 + GEO.POLE_BTM;
   const listMaxH = Math.max(
     4 * RULE,
-    Math.min(sh - colTop - 110, dividerBottom - colTop - 44)
-  ); // keep ＋ visible, stay inside the chart
+    Math.min(sh - colTop - 110, dividerBottom - colTop - RULE)
+  ); // the writing area — a fixed-height "page", staying inside the chart
   // verdict sits under the last ruled line, tucked to the right
   const verdictTop = RULE * Math.floor((sh - 38) / RULE) + 4;
 
@@ -247,15 +228,12 @@ export default function Board() {
   );
 
   const columnProps = {
-    draftText,
-    draftWeight,
+    rule: RULE,
     draggingId: dragId,
-    maxListHeight: listMaxH,
+    listHeight: listMaxH,
     onRowPointerDown,
     onUpdateReason: updateReason,
-    onDraftText: (e) => setDraftText(e.currentTarget.value),
-    onDraftWeight: (e) => setDraftWeight(clampWeight(+e.currentTarget.value || 1)),
-    onDraftKey,
+    onAddReason: addReason,
   };
 
   return (
@@ -280,7 +258,7 @@ export default function Board() {
           style={{
             position: "absolute",
             left: 0,
-            top: 3 * RULE - 21,
+            top: 4 * RULE - 28,
             width: 92,
             textAlign: "center",
             lineHeight: "28px",
@@ -302,7 +280,7 @@ export default function Board() {
         <div
           style={{
             position: "absolute",
-            top: 3 * RULE - 42,
+            top: 4 * RULE - 50,
             left: 120,
             maxWidth: 760,
             display: "flex",
@@ -399,12 +377,12 @@ export default function Board() {
 
         {/* PROS column */}
         <div style={{ position: "absolute", left: chartLeft + 8, top: colTop, width: midX - chartLeft - 26, zIndex: 2 }}>
-          <ReasonColumn side="pro" reasons={proRows} {...columnProps} adding={adding === "pro"} onOpenAdd={() => openAdd("pro")} />
+          <ReasonColumn side="pro" reasons={proRows} {...columnProps} />
         </div>
 
         {/* CONS column */}
         <div style={{ position: "absolute", left: midX + 18, top: colTop, width: chartRight - midX - 26, zIndex: 2 }}>
-          <ReasonColumn side="con" reasons={conRows} {...columnProps} adding={adding === "con"} onOpenAdd={() => openAdd("con")} />
+          <ReasonColumn side="con" reasons={conRows} {...columnProps} />
         </div>
 
         {/* SCALE */}
