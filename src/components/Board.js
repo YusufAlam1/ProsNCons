@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import Scale from "./Scale";
 import ReasonColumn from "./ReasonColumn";
 import Trash from "./Trash";
+import MarginTools from "./MarginTools";
+import ClearModal from "./ClearModal";
 import { rLine } from "../lib/rough";
 import { shade, clampWeight, verdictFor } from "../lib/scaleMath";
 import { GEO } from "../lib/scalePhysics";
@@ -30,7 +32,7 @@ const POP_MS = 380; // covers the .pop-core / .pop-particle CSS animations
 // Longest title that still fits on the header strip's single line at fontSize
 // 50 — past this the editable span would start scrolling like a never-ending
 // line, so we hard-stop input here (and on paste) instead.
-const MAX_TITLE_LENGTH = 42;
+const MAX_TITLE_LENGTH = 38;
 
 const paintRough = (ds, sw, keyPrefix) =>
   ds.map((d, i) => (
@@ -54,6 +56,20 @@ export default function Board() {
   const [landed, setLanded] = useState({ net: 0, count: 0 });
   // reasons mid-deletion: gone from the list, ball still popping on the scale
   const [popping, setPopping] = useState([]);
+  // weights hidden: every reason silently counts as 5 (real weights are kept
+  // in state, so toggling back restores them exactly)
+  const [hideWeights, setHideWeights] = useState(false);
+  // Undo/redo across every content action. Each entry is one user gesture:
+  //   add    — a reason committed from a composer
+  //   edit   — one edit session of a row (focus → blur), text and/or weight
+  //   delete — one trash drop or "clear the page" batch, [{ reason, index }]
+  //   title  — a committed change to the page title
+  // The weights switch is a view preference and deliberately stays out.
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
+  // the right-click-the-trash flow: scope pick, then confirm
+  const [clearMenu, setClearMenu] = useState(false);
+  const [confirmScope, setConfirmScope] = useState(null); // 'pro' | 'con' | 'all'
 
   // drag state that needs to render
   const [dragId, setDragId] = useState(null);
@@ -71,8 +87,20 @@ export default function Board() {
   const dragIdRef = useRef(null);
   const overTrashRef = useRef(false);
   const titleRef = useRef(null);
-  const popTimers = useRef([]);
+  const popTimerMap = useRef(new Map()); // reason id → pending removal timer (undo can cancel it)
   const deletingRef = useRef(new Set()); // reason ids mid-pop, so delete is idempotent
+  const reasonsRef = useRef([]);
+  const hideWeightsRef = useRef(false);
+  const undoStackRef = useRef([]);
+  const redoStackRef = useRef([]);
+  const undoRef = useRef(() => {});
+  const redoRef = useRef(() => {});
+  const editSessionRef = useRef(null); // { id, text, weight } — row state when the caret entered it
+  const pendingSessionRef = useRef(null); // a just-blurred session, until its deferred record lands
+  reasonsRef.current = reasons;
+  hideWeightsRef.current = hideWeights;
+  undoStackRef.current = undoStack;
+  redoStackRef.current = redoStack;
 
   useEffect(() => {
     const fit = () => {
@@ -88,7 +116,11 @@ export default function Board() {
           const r = pending.r;
           dragIdRef.current = r.id;
           setDragId(r.id);
-          setDragMeta({ text: r.text, weight: r.weight, color: shade(r.side, r.weight) });
+          setDragMeta({
+            text: r.text,
+            weight: r.weight,
+            color: shade(r.side, hideWeightsRef.current ? 5 : r.weight),
+          });
           setDragPos({ x: e.clientX, y: e.clientY });
         }
         return;
@@ -127,13 +159,45 @@ export default function Board() {
     window.addEventListener("resize", fit);
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
-    const timers = popTimers.current;
+    const timers = popTimerMap.current;
     return () => {
       window.removeEventListener("resize", fit);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       timers.forEach(clearTimeout);
     };
+  }, []);
+
+  // Hotkeys. Alt+W flips the weights switch anywhere. Ctrl+Z / Ctrl+Y (or
+  // Ctrl+Shift+Z) drive undo/redo — but never while the caret is in a text
+  // field, where Ctrl+Z must stay the browser's own typing undo (the app
+  // history takes over the moment the caret leaves the field).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        setClearMenu(false);
+        setConfirmScope(null);
+      }
+      const k = e.key.toLowerCase();
+      if (e.altKey && !e.ctrlKey && !e.metaKey && k === "w") {
+        e.preventDefault();
+        setHideWeights((h) => !h);
+        return;
+      }
+      const t = e.target;
+      const inEditor =
+        t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT" || t.isContentEditable);
+      if (inEditor || !(e.ctrlKey || e.metaKey)) return;
+      if (!e.shiftKey && k === "z") {
+        e.preventDefault();
+        undoRef.current();
+      } else if (k === "y" || (e.shiftKey && k === "z")) {
+        e.preventDefault();
+        redoRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   // when the title enters edit mode, focus it and select what's there
@@ -153,15 +217,20 @@ export default function Board() {
     pendingRef.current = { r, sx: e.clientX, sy: e.clientY };
   };
 
+  // any new action lands on the undo stack (capped) and invalidates redo
+  const pushAction = (action) => {
+    setUndoStack((st) => [...st.slice(-99), action]);
+    setRedoStack([]);
+  };
+
   // a reason is committed straight from a column's composer (Enter / blur)
   const addReason = (side, text, weight) => {
     const t = (text || "").trim();
     if (!t) return;
     nid.current += 1;
-    setReasons((rs) => [
-      ...rs,
-      { id: nid.current, side, text: t, weight: clampWeight(+weight || 1) },
-    ]);
+    const reason = { id: nid.current, side, text: t, weight: clampWeight(+weight || 1) };
+    pushAction({ type: "add", reason, index: reasonsRef.current.length });
+    setReasons((rs) => [...rs, reason]);
   };
 
   const updateReason = (id, text, weight) =>
@@ -171,30 +240,187 @@ export default function Board() {
       )
     );
 
+  // ── edit sessions: one undo step per visit to a row ────────────────────────
+  // Text and weight commit live on every keystroke, so the history can't
+  // record per-change. Instead a row's state is snapshotted when the caret
+  // enters it, and a single edit entry lands when it leaves. The record is
+  // deferred one microtask: blur-time commits (weight normalization, text
+  // trim) run in the same event as the blur, and the deferral lets React
+  // flush them so the recorded "after" is what the page actually shows.
+  const closeEditSession = (s) => {
+    editSessionRef.current = null;
+    pendingSessionRef.current = s; // a same-event delete can still claim it
+    queueMicrotask(() => {
+      if (pendingSessionRef.current !== s) return; // claimed by a delete
+      pendingSessionRef.current = null;
+      const r = reasonsRef.current.find((x) => x.id === s.id);
+      if (!r || deletingRef.current.has(s.id)) return; // the delete owns history
+      if (r.text === s.text && r.weight === s.weight) return;
+      pushAction({
+        type: "edit",
+        id: s.id,
+        before: { text: s.text, weight: s.weight },
+        after: { text: r.text, weight: r.weight },
+      });
+    });
+  };
+
   // rows report where the caret lives; blur only clears if focus didn't
   // already move on to another row (its focus event lands first-or-after,
   // so the functional check keeps the newest row's highlight)
-  const onEditFocus = (id) => setEditingId(id);
-  const onEditBlur = (id) => setEditingId((cur) => (cur === id ? null : cur));
+  const onEditFocus = (id) => {
+    setEditingId(id);
+    const s = editSessionRef.current;
+    if (s?.id === id) return; // hopping text ↔ weight inside the same row
+    if (s) closeEditSession(s); // ordering-proof: a blur may land after this focus
+    const r = reasonsRef.current.find((x) => x.id === id);
+    editSessionRef.current = r ? { id, text: r.text, weight: r.weight } : null;
+  };
+  const onEditBlur = (id) => {
+    setEditingId((cur) => (cur === id ? null : cur));
+    const s = editSessionRef.current;
+    if (s?.id === id) closeEditSession(s);
+  };
 
   // the row leaves the list at once, but the ball stays on the scale just
   // long enough to pop — only then is the reason really removed and the beam
   // re-settles. Shared by the trash drop and by emptying a reason's text, and
   // idempotent: a reason already mid-pop ignores repeat calls (the keyboard
   // delete and the follow-on blur can both fire for one row).
-  const deleteReason = (id) => {
+  // performDelete only animates+removes; recording for undo happens in the
+  // user-facing entry points (deleteReason / clearReasons) so redo can replay
+  // a deletion without stacking a second history entry.
+  const performDelete = (id) => {
     if (deletingRef.current.has(id)) return;
     deletingRef.current.add(id);
     setEditingId((cur) => (cur === id ? null : cur)); // a dying row stops glowing
     setPopping((p) => [...p, id]);
-    popTimers.current.push(
+    popTimerMap.current.set(
+      id,
       setTimeout(() => {
         setReasons((rs) => rs.filter((r) => r.id !== id));
         setPopping((p) => p.filter((x) => x !== id));
         deletingRef.current.delete(id);
+        popTimerMap.current.delete(id);
       }, POP_MS)
     );
   };
+
+  // A row deleted mid-edit-session is recorded at its PRE-session state
+  // (covers select-all → backspace → blur: undo brings the words back, not
+  // an empty row). The session is consumed so no edit entry lands for it.
+  const sessionStateFor = (id) => {
+    const s =
+      editSessionRef.current?.id === id
+        ? editSessionRef.current
+        : pendingSessionRef.current?.id === id
+          ? pendingSessionRef.current
+          : null;
+    if (!s) return null;
+    if (editSessionRef.current === s) editSessionRef.current = null;
+    if (pendingSessionRef.current === s) pendingSessionRef.current = null;
+    return { text: s.text, weight: s.weight };
+  };
+
+  const deleteReason = (id) => {
+    if (deletingRef.current.has(id)) return;
+    const idx = reasonsRef.current.findIndex((r) => r.id === id);
+    if (idx < 0) return;
+    const before = sessionStateFor(id);
+    const reason = before
+      ? { ...reasonsRef.current[idx], ...before }
+      : reasonsRef.current[idx];
+    pushAction({ type: "delete", items: [{ reason, index: idx }] });
+    performDelete(id);
+  };
+
+  // the trash's right-click menu: clear one side or the whole page, as a
+  // single undoable step
+  const clearReasons = (scope) => {
+    const items = reasonsRef.current
+      .map((reason, index) => ({ reason, index }))
+      .filter(
+        ({ reason }) =>
+          !deletingRef.current.has(reason.id) && (scope === "all" || reason.side === scope)
+      )
+      .map(({ reason, index }) => {
+        const before = sessionStateFor(reason.id);
+        return { reason: before ? { ...reason, ...before } : reason, index };
+      });
+    if (items.length) pushAction({ type: "delete", items });
+    items.forEach(({ reason }) => performDelete(reason.id));
+    setClearMenu(false);
+    setConfirmScope(null);
+  };
+
+  // Put deleted reasons back: one still mid-pop is rescued in place (removal
+  // timer cancelled, recorded text/weight restored — no re-drop); one already
+  // gone is spliced back into its old spot and its ball falls in fresh.
+  const restoreReasons = (items) => {
+    for (const { reason } of items) {
+      const t = popTimerMap.current.get(reason.id);
+      if (t) {
+        clearTimeout(t);
+        popTimerMap.current.delete(reason.id);
+        deletingRef.current.delete(reason.id);
+        setPopping((p) => p.filter((x) => x !== reason.id));
+      }
+    }
+    setReasons((rs) => {
+      const have = new Set(rs.map((r) => r.id));
+      const next = rs.map((r) => items.find((i) => i.reason.id === r.id)?.reason || r);
+      for (const { reason, index } of items) {
+        if (!have.has(reason.id)) next.splice(Math.min(index, next.length), 0, reason);
+      }
+      return next;
+    });
+  };
+
+  // one switchboard applies any history entry in either direction
+  const applyAction = (action, dir) => {
+    const undoing = dir === "undo";
+    switch (action.type) {
+      case "delete":
+        if (undoing) restoreReasons(action.items);
+        else action.items.forEach(({ reason }) => performDelete(reason.id));
+        break;
+      case "add":
+        if (undoing) performDelete(action.reason.id);
+        else restoreReasons([{ reason: action.reason, index: action.index }]);
+        break;
+      case "edit": {
+        const v = undoing ? action.before : action.after;
+        setReasons((rs) =>
+          rs.map((r) => (r.id === action.id ? { ...r, text: v.text, weight: v.weight } : r))
+        );
+        break;
+      }
+      case "title":
+        setTitle(undoing ? action.before : action.after);
+        break;
+      default:
+        break;
+    }
+  };
+
+  const undo = () => {
+    const st = undoStackRef.current;
+    if (!st.length) return;
+    const action = st[st.length - 1];
+    setUndoStack(st.slice(0, -1));
+    setRedoStack([...redoStackRef.current, action]);
+    applyAction(action, "undo");
+  };
+  const redo = () => {
+    const rd = redoStackRef.current;
+    if (!rd.length) return;
+    const action = rd[rd.length - 1];
+    setRedoStack(rd.slice(0, -1));
+    setUndoStack([...undoStackRef.current, action]);
+    applyAction(action, "redo");
+  };
+  undoRef.current = undo;
+  redoRef.current = redo;
 
   const { s, sw, sh } = dims;
 
@@ -219,9 +445,16 @@ export default function Board() {
   // verdict sits on the very last ruled line that fits, tucked to the right
   const verdictTop = RULE * Math.floor((sh - 4) / RULE) - 30;
 
+  // With weights hidden every reason acts as a flat 5 — balls morph to one
+  // size, colors even out, and the tally becomes a pure headcount. The real
+  // weights stay untouched in `reasons` for when the switch flips back.
+  const effective = useMemo(
+    () => (hideWeights ? reasons.map((r) => ({ ...r, weight: 5 })) : reasons),
+    [reasons, hideWeights]
+  );
   // stable references so the memoized <Scale/> skips drag re-renders
-  const pros = useMemo(() => reasons.filter((r) => r.side === "pro"), [reasons]);
-  const cons = useMemo(() => reasons.filter((r) => r.side === "con"), [reasons]);
+  const pros = useMemo(() => effective.filter((r) => r.side === "pro"), [effective]);
+  const cons = useMemo(() => effective.filter((r) => r.side === "con"), [effective]);
   // rows leave the columns as soon as the delete lands; balls linger to pop
   const proRows = useMemo(() => pros.filter((r) => !popping.includes(r.id)), [pros, popping]);
   const conRows = useMemo(() => cons.filter((r) => !popping.includes(r.id)), [cons, popping]);
@@ -251,6 +484,7 @@ export default function Board() {
 
   const columnProps = {
     rule: RULE,
+    hideWeights,
     draggingId: dragId,
     listHeight: listMaxH,
     onRowPointerDown,
@@ -336,7 +570,9 @@ export default function Board() {
             title={editingTitle ? undefined : "double-click to edit"}
             onDoubleClick={() => setEditingTitle(true)}
             onBlur={(e) => {
-              setTitle(e.currentTarget.textContent.trim());
+              const next = e.currentTarget.textContent.trim();
+              if (next !== title) pushAction({ type: "title", before: title, after: next });
+              setTitle(next);
               setEditingTitle(false);
             }}
             
@@ -454,13 +690,61 @@ export default function Board() {
             markedId={dragId}
             editingId={editingId}
             popping={popping}
+            hideWeights={hideWeights}
           />
         </div>
 
-        {/* TRASH */}
-        <div id="trashzone" style={{ position: "absolute", left: 16, bottom: 10, zIndex: 3 }}>
+        {/* MARGIN TOOLS — undo/redo + the weights switch, doodled in the
+            red margin between the date up top and the trash below */}
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 9 * RULE - 22,
+            width: 92,
+            display: "flex",
+            justifyContent: "center",
+            zIndex: 3,
+          }}
+        >
+          <MarginTools
+            canUndo={undoStack.length > 0}
+            canRedo={redoStack.length > 0}
+            onUndo={undo}
+            onRedo={redo}
+            weightsOn={!hideWeights}
+            onToggleWeights={() => setHideWeights((h) => !h)}
+          />
+        </div>
+
+        {/* TRASH — drop a reason to delete it; right-click to clear the page */}
+        <div
+          id="trashzone"
+          className="mtip mtip-up"
+          data-tip={overTrash ? undefined : "right-click to clear the page"}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setClearMenu(true);
+          }}
+          style={{ position: "absolute", left: 16, bottom: 10, zIndex: 3 }}
+        >
           <Trash open={overTrash} />
         </div>
+
+        {/* CLEAR-THE-PAGE modal (right-click on the trash) */}
+        {clearMenu && (
+          <ClearModal
+            proCount={proRows.length}
+            conCount={conRows.length}
+            scope={confirmScope}
+            onScope={setConfirmScope}
+            onConfirm={() => clearReasons(confirmScope)}
+            onClose={() => {
+              setClearMenu(false);
+              setConfirmScope(null);
+            }}
+          />
+        )}
       </div>
 
       {/* DRAG CLONE (follows the cursor at unscaled screen coords) */}
@@ -486,7 +770,7 @@ export default function Board() {
           }}
         >
           <span>{dragMeta.text}</span>
-          <span style={{ fontWeight: 700 }}>{dragMeta.weight}</span>
+          {!hideWeights && <span style={{ fontWeight: 700 }}>{dragMeta.weight}</span>}
         </div>
       )}
     </div>

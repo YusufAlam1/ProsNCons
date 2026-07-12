@@ -168,6 +168,8 @@ function offsetForX(el, x, edge) {
 // walks pro-text → pro-weight → con-text → con-weight along the same row,
 // which is what lets the caret hop the T-chart divider without the mouse.
 const NAV_ORDER = ["pro:text", "pro:weight", "con:text", "con:weight"];
+// with weights hidden the weight cells don't exist — arrows hop text to text
+const TEXT_ORDER = ["pro:text", "con:text"];
 
 const lastRow = (side) =>
   document.querySelectorAll(`[data-nav^="${side}:"][data-nav$=":text"]`).length - 1;
@@ -191,20 +193,21 @@ function focusCell(side, row, field, place) {
   return true;
 }
 
-function navKey(e, side, row, field) {
+function navKey(e, side, row, field, textOnly) {
   if (e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.nativeEvent.isComposing) return;
   const el = e.currentTarget;
   const at = el.selectionStart;
   if (at == null || at !== el.selectionEnd) return; // never hijack a selection
   const len = el.value.length;
-  const idx = NAV_ORDER.indexOf(`${side}:${field}`);
+  const order = textOnly ? TEXT_ORDER : NAV_ORDER;
+  const idx = order.indexOf(`${side}:${field}`);
   let moved = false;
 
   if (e.key === "ArrowLeft" && at === 0 && idx > 0) {
-    const [s, f] = NAV_ORDER[idx - 1].split(":");
+    const [s, f] = order[idx - 1].split(":");
     moved = focusCell(s, Math.min(row, lastRow(s)), f, { at: "end" });
-  } else if (e.key === "ArrowRight" && at === len && idx < NAV_ORDER.length - 1) {
-    const [s, f] = NAV_ORDER[idx + 1].split(":");
+  } else if (e.key === "ArrowRight" && at === len && idx < order.length - 1) {
+    const [s, f] = order[idx + 1].split(":");
     moved = focusCell(s, Math.min(row, lastRow(s)), f, { at: "start" });
   } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
     const dir = e.key === "ArrowUp" ? -1 : 1;
@@ -268,11 +271,14 @@ function WeightInput({ side, row, value, color, rule, onCommit, onKeyDownExtra, 
 // Click anywhere in the text to edit (no mode switch); the grip in the left
 // gutter is the drag handle for the trash. A reason whose text is emptied is
 // deleted the moment focus leaves the row.
-function ReasonRow({ side, row, r, rule, dragging, onRowPointerDown, onUpdate, onDelete, onEditFocus, onEditBlur }) {
+function ReasonRow({ side, row, r, rule, hideWeights, dragging, onRowPointerDown, onUpdate, onDelete, onEditFocus, onEditBlur }) {
   const taRef = useRef(null);
   useEffect(() => {
     autosize(taRef.current, rule);
   }, [r.text, rule]);
+  // with weights hidden every row inks at the flat default; the real weight
+  // stays on the reason underneath
+  const w = hideWeights ? 5 : r.weight;
 
   return (
     <div
@@ -300,7 +306,7 @@ function ReasonRow({ side, row, r, rule, dragging, onRowPointerDown, onUpdate, o
       <div
         className={`grip grip-${side}`}
         title="drag to the trash to delete"
-        style={{ color: shade(side, r.weight) }}
+        style={{ color: shade(side, w) }}
         onPointerDown={(e) => onRowPointerDown(e, r)}
       />
       <textarea
@@ -337,24 +343,26 @@ function ReasonRow({ side, row, r, rule, dragging, onRowPointerDown, onUpdate, o
             onDelete(r.id);
             return;
           }
-          navKey(e, side, row, "text");
+          navKey(e, side, row, "text", hideWeights);
         }}
-        style={inkTextarea(rule, shade(side, r.weight))}
+        style={inkTextarea(rule, shade(side, w))}
       />
-      <WeightInput
-        side={side}
-        row={row}
-        value={r.weight}
-        color={shadeStroke(side, r.weight)}
-        rule={rule}
-        onCommit={(n) => onUpdate(r.id, r.text, n)}
-        onKeyDownExtra={(e) => {
-          if (e.key === "Enter" || e.key === "Escape") {
-            e.preventDefault();
-            e.currentTarget.blur();
-          }
-        }}
-      />
+      {!hideWeights && (
+        <WeightInput
+          side={side}
+          row={row}
+          value={r.weight}
+          color={shadeStroke(side, r.weight)}
+          rule={rule}
+          onCommit={(n) => onUpdate(r.id, r.text, n)}
+          onKeyDownExtra={(e) => {
+            if (e.key === "Enter" || e.key === "Escape") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -363,6 +371,7 @@ export default function ReasonColumn({
   side,
   reasons,
   rule,
+  hideWeights,
   draggingId,
   listHeight,
   onRowPointerDown,
@@ -419,7 +428,13 @@ export default function ReasonColumn({
       return;
     }
     // the composer is the column's last nav row
-    navKey(e, side, reasons.length, e.currentTarget.tagName === "TEXTAREA" ? "text" : "weight");
+    navKey(
+      e,
+      side,
+      reasons.length,
+      e.currentTarget.tagName === "TEXTAREA" ? "text" : "weight",
+      hideWeights
+    );
   };
   const onDraftBlur = (e) => {
     // moving between the textarea and its weight box isn't leaving the composer
@@ -461,6 +476,7 @@ export default function ReasonColumn({
             row={i}
             r={r}
             rule={rule}
+            hideWeights={hideWeights}
             dragging={draggingId === r.id}
             onRowPointerDown={onRowPointerDown}
             onUpdate={onUpdateReason}
@@ -501,9 +517,12 @@ export default function ReasonColumn({
             }}
             onKeyDown={onDraftKey}
             onBlur={onDraftBlur}
-            style={{ ...inkTextarea(rule, shade(side, draftWeight)), "--ph": accent.faint }}
+            style={{
+              ...inkTextarea(rule, shade(side, hideWeights ? 5 : draftWeight)),
+              "--ph": accent.faint,
+            }}
           />
-          {active && (
+          {active && !hideWeights && (
             <WeightInput
               side={side}
               row={reasons.length}

@@ -50,7 +50,7 @@ const POP_DIRS = Array.from({ length: 7 }, (_, i) => {
   return { x: Math.cos(a), y: Math.sin(a) - 0.25 };
 });
 
-function Scale({ pros, cons, onLanded, markedId, editingId, popping }) {
+function Scale({ pros, cons, onLanded, markedId, editingId, popping, hideWeights }) {
   // what has physically touched down — drives the pivot badge
   const [landed, setLanded] = useState({ net: 0, count: 0 });
 
@@ -215,8 +215,11 @@ function Scale({ pros, cons, onLanded, markedId, editingId, popping }) {
   );
 
   const mag = Math.abs(landed.net);
+  // weights hidden → every landed ball carries a flat 5, so the badge shows
+  // the plain headcount difference instead of the weight-ledger net
+  const shownMag = hideWeights ? Math.round(mag / 5) : mag;
   const pivotColor =
-    landed.net === 0 ? "#9a9a9a" : shade(landed.net > 0 ? "pro" : "con", mag);
+    landed.net === 0 ? "#9a9a9a" : shade(landed.net > 0 ? "pro" : "con", shownMag);
 
   return (
     <svg
@@ -258,7 +261,7 @@ function Scale({ pros, cons, onLanded, markedId, editingId, popping }) {
           fontSize={26}
           fill="#fff"
         >
-          {mag}
+          {shownMag}
         </text>
       </g>
     </svg>

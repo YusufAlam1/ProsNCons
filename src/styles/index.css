@@ -201,6 +201,117 @@ code {
   font-style: italic;
 }
 
+/* ── margin tools: doodles living in the notebook margin ──────────────────
+   Bare buttons — the rough-inked SVG glyph / switch IS the control; hover
+   just lifts it the way reason rows lift. */
+.margin-btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 5px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+.margin-btn:hover:not(:disabled) {
+  background: rgba(29, 29, 29, 0.06);
+}
+.margin-btn:active:not(:disabled) {
+  transform: scale(0.9);
+}
+/* fade only the glyph when disabled — opacity on the button itself would
+   ghost the tooltip too (and let the page text bleed through it) */
+.margin-btn:disabled {
+  cursor: default;
+}
+.margin-btn:disabled > svg,
+.margin-btn:disabled > div {
+  opacity: 0.22;
+}
+
+/* hand-written tooltip on a little paper scrap. The wobbly border-radius
+   keeps it looking torn-off rather than like browser chrome; the transition
+   delay stops it flashing on a casual pass-over. Default flies RIGHT (margin
+   controls sit on the page's left edge); .mtip-up flies above (trash). */
+.mtip {
+  position: relative;
+}
+.mtip[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%) rotate(-1.2deg);
+  background: #fffef6;
+  border: 2px solid #2b2b2b;
+  border-radius: 12px 4px 14px 5px / 5px 14px 4px 12px;
+  box-shadow: 2px 3px 0 rgba(43, 43, 43, 0.15);
+  font: 700 13.5px Kalam, Caveat, cursive;
+  color: #2b2b2b;
+  padding: 3px 11px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease 0.4s;
+  z-index: 40;
+}
+.mtip[data-tip]:hover::after {
+  opacity: 1;
+}
+.mtip-up[data-tip]::after {
+  left: 50%;
+  top: auto;
+  bottom: calc(100% + 12px);
+  transform: translateX(-50%) rotate(1deg);
+}
+
+/* clear-the-page modal: options written in marker inside sketchy boxes */
+.modal-opt {
+  appearance: none;
+  background: transparent;
+  border: 2.5px solid currentColor;
+  border-radius: 12px 4px 14px 5px / 5px 14px 4px 12px;
+  padding: 7px 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+.modal-opt:hover:not(:disabled) {
+  background: rgba(29, 29, 29, 0.05);
+  transform: rotate(-0.8deg) scale(1.015);
+}
+.modal-opt:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+.modal-dismiss {
+  appearance: none;
+  background: transparent;
+  border: none;
+  margin-top: 4px;
+  align-self: center;
+  font: 700 15px Kalam, Caveat, cursive;
+  color: #8f8f8b;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.modal-dismiss:hover {
+  color: #2b2b2b;
+}
+@keyframes cardIn {
+  from {
+    transform: rotate(-0.6deg) scale(0.92);
+    opacity: 0;
+  }
+  to {
+    transform: rotate(-0.6deg) scale(1);
+    opacity: 1;
+  }
+}
+.modal-card {
+  animation: cardIn 0.16s ease-out;
+}
+
 /* spinner arrows clash with the handwritten look */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
