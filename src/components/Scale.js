@@ -7,7 +7,7 @@ import { GEO, createScaleSim } from "../lib/scalePhysics";
 // hanging cradle bowls. All geometry comes from GEO so the SVG and the
 // physics bodies are the same shapes — what you see is the hard barrier the
 // balls actually collide with.
-const { VW, VH, CX, CY, L, CHAIN_H, PW, POLE_BTM, BASE_HALF, BOWL_R } = GEO;
+const { VW, VH, CX, CY, L, CHAIN_H, PW, POLE_BTM, BASE_HALF, BOWL_R, SPAWN_Y } = GEO;
 const DK = "#2b2b2b"; // ink color
 const STEP_FALLBACK = 1000 / 60; // dt for the very first frame
 
@@ -50,12 +50,13 @@ const POP_DIRS = Array.from({ length: 7 }, (_, i) => {
   return { x: Math.cos(a), y: Math.sin(a) - 0.25 };
 });
 
-function Scale({ pros, cons, onLanded, markedId, popping }) {
+function Scale({ pros, cons, onLanded, markedId, editingId, popping }) {
   // what has physically touched down — drives the pivot badge
   const [landed, setLanded] = useState({ net: 0, count: 0 });
 
   const simRef = useRef(null);
   const ballEls = useRef(new Map()); // reason id → wrapper <g> element
+  const coreEls = useRef(new Map()); // reason id → the ball's <circle> (loop sets r)
   const beamRef = useRef(null);
   const panProRef = useRef(null);
   const panConRef = useRef(null);
@@ -112,6 +113,10 @@ function Scale({ pros, cons, onLanded, markedId, popping }) {
           // physics frame; it always enters already falling, from the top
           el.setAttribute("visibility", "visible");
         }
+        // the drawn radius follows the physics radius (1px ink inset) — during
+        // a weight-edit morph this is what makes the ball visibly grow/shrink
+        const core = coreEls.current.get(b.id);
+        if (core) core.setAttribute("r", Math.max(0.75, b.r - 1));
       }
       // balls with no body (still queued, or spilled off the page) stay hidden
       for (const [id, el] of ballEls.current) {
@@ -135,9 +140,14 @@ function Scale({ pros, cons, onLanded, markedId, popping }) {
   // Each ball = a wrapper <g> the rAF loop moves (and reveals), plus inner
   // shapes that own looks + CSS effects. Splitting them means the pop/marked
   // animations can transform the circle without ever fighting the physics
-  // transform on the wrapper. Balls render hidden until the sim owns them.
-  // The circle is drawn 1px inside the physics radius so its 2px stroke stays
-  // within the collision circle — resting balls touch, ink never overlaps.
+  // transform on the wrapper. Balls render hidden AND parked at the spawn
+  // point until the sim owns them — so no render/remount path can ever flash
+  // a ball anywhere but the top of the page. The live circle carries NO r in
+  // JSX: the loop owns the radius (drawn 1px inside the physics circle so the
+  // 2px stroke stays within it — resting balls touch, ink never overlaps),
+  // which is also what animates a weight-edit morph without React snapping it.
+  // Fill/stroke DO come from JSX (the new weight's shade) — index.css
+  // transitions them so a morphing ball re-inks as smoothly as it grows.
   //
   // A popping ball bursts iMessage-unsend style: the bubble puffs up a hair,
   // collapses, and a ring of little droplets scatters outward and dissolves.
@@ -152,6 +162,7 @@ function Scale({ pros, cons, onLanded, markedId, popping }) {
             <g
               key={r.id}
               visibility="hidden"
+              transform={`translate(${CX} ${SPAWN_Y})`}
               ref={(el) => {
                 if (el) ballEls.current.set(r.id, el);
                 else ballEls.current.delete(r.id);
@@ -177,11 +188,22 @@ function Scale({ pros, cons, onLanded, markedId, popping }) {
                 </g>
               ) : (
                 <circle
-                  className={markedId === r.id ? "ball-marked" : undefined}
-                  r={rad}
+                  ref={(el) => {
+                    if (el) coreEls.current.set(r.id, el);
+                    else coreEls.current.delete(r.id);
+                  }}
+                  className={
+                    "ball-core" +
+                    (markedId === r.id
+                      ? " ball-marked"
+                      : editingId === r.id
+                      ? " ball-editing"
+                      : "")
+                  }
                   fill={fill}
                   stroke={stroke}
                   strokeWidth={2}
+                  style={{ "--glow": stroke }}
                 />
               )}
             </g>
@@ -189,7 +211,7 @@ function Scale({ pros, cons, onLanded, markedId, popping }) {
         })}
       </g>
     ),
-    [reasons, markedId, popping]
+    [reasons, markedId, editingId, popping]
   );
 
   const mag = Math.abs(landed.net);

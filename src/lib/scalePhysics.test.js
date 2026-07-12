@@ -206,6 +206,123 @@ test("an over-full bowl: balls return and retry, then spill for good, credit kep
   sim.destroy();
 });
 
+test("a weight edit morphs the landed ball in place — no despawn, no re-drop", () => {
+  const sim = createScaleSim();
+  sim.syncReasons([{ id: 1, side: "pro", weight: 2 }]);
+  stepFor(sim, 5000);
+  expect(sim.getLanded()).toEqual({ net: 2, count: 1 });
+  expect(sim.snapshot().balls[0].r).toBeCloseTo(ballRadius(2), 1);
+
+  sim.syncReasons([{ id: 1, side: "pro", weight: 9 }]);
+  // the credit swaps immediately; the ball itself never leaves the world
+  expect(sim.getLanded()).toEqual({ net: 9, count: 1 });
+
+  for (let i = 0; i < 360; i++) {
+    sim.step(STEP_MS);
+    const s = sim.snapshot();
+    expect(s.balls).toHaveLength(1); // never despawned…
+    expect(s.balls[0].y).toBeGreaterThan(100); // …never reset to the sky
+  }
+  const s = sim.snapshot();
+  expect(s.balls[0].r).toBeCloseTo(ballRadius(9), 1); // grew to the new size
+  expect(Math.abs(s.balls[0].x - s.pro.x)).toBeLessThan(GEO.PW); // still in its bowl
+
+  stepFor(sim, 3000);
+  expect(Math.abs(sim.snapshot().beamDeg - -tiltFor(9))).toBeLessThan(0.9);
+  sim.destroy();
+});
+
+test("shrinking a weight eases the ball smaller and the beam follows", () => {
+  const sim = createScaleSim();
+  sim.syncReasons([{ id: 1, side: "con", weight: 10 }]);
+  stepFor(sim, 5000);
+  expect(sim.getLanded()).toEqual({ net: -10, count: 1 });
+
+  sim.syncReasons([{ id: 1, side: "con", weight: 1 }]);
+  expect(sim.getLanded()).toEqual({ net: -1, count: 1 });
+  stepFor(sim, 4000);
+
+  const s = sim.snapshot();
+  expect(s.balls).toHaveLength(1);
+  expect(s.balls[0].r).toBeCloseTo(ballRadius(1), 1);
+  expect(Math.abs(s.balls[0].x - s.con.x)).toBeLessThan(GEO.PW);
+  expect(Math.abs(s.beamDeg - -tiltFor(-1))).toBeLessThan(0.9);
+  sim.destroy();
+});
+
+test("growing a ball inside a pile shoves neighbours aside without overlap", () => {
+  const reasons = [
+    { id: 1, side: "con", weight: 3 },
+    { id: 2, side: "con", weight: 3 },
+    { id: 3, side: "con", weight: 3 },
+  ];
+  const sim = createScaleSim();
+  sim.syncReasons(reasons);
+  stepFor(sim, 9000);
+  expect(sim.getLanded()).toEqual({ net: -9, count: 3 });
+
+  sim.syncReasons(reasons.map((r) => (r.id === 2 ? { ...r, weight: 10 } : r)));
+  expect(sim.getLanded()).toEqual({ net: -16, count: 3 });
+  stepFor(sim, 5000); // morph + re-settle
+
+  const s = sim.snapshot();
+  expect(s.balls).toHaveLength(3);
+  const rOf = { 1: ballRadius(3), 2: ballRadius(10), 3: ballRadius(3) };
+  for (const a of s.balls) {
+    for (const b of s.balls) {
+      if (a.id >= b.id) continue;
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      expect(dist).toBeGreaterThan(rOf[a.id] + rOf[b.id] - 3.5);
+    }
+  }
+  sim.destroy();
+});
+
+test("a weight edit mid-fall keeps the same ball falling — no reset to the sky", () => {
+  const sim = createScaleSim();
+  sim.syncReasons([{ id: 1, side: "pro", weight: 1 }]);
+  // step until the ball is well below the spawn point but not yet landed
+  let y0 = null;
+  for (let i = 0; i < 2400 && sim.getLanded().count === 0; i++) {
+    sim.step(STEP_MS);
+    const b = sim.snapshot().balls[0];
+    if (b && b.y > 60) {
+      y0 = b.y;
+      break;
+    }
+  }
+  expect(y0).not.toBeNull();
+
+  sim.syncReasons([{ id: 1, side: "pro", weight: 10 }]);
+  sim.step(STEP_MS);
+  expect(sim.snapshot().balls[0].y).toBeGreaterThanOrEqual(y0 - 1); // kept falling
+
+  let steps = 0;
+  while (sim.getLanded().count === 0 && steps < 1200) {
+    sim.step(STEP_MS);
+    steps += 1;
+  }
+  expect(sim.getLanded()).toEqual({ net: 10, count: 1 });
+  stepFor(sim, 600); // let the tail of the morph finish
+  expect(sim.snapshot().balls[0].r).toBeCloseTo(ballRadius(10), 1);
+  sim.destroy();
+});
+
+test("changing a reason's side still re-drops the ball onto the other pan", () => {
+  const sim = createScaleSim();
+  sim.syncReasons([{ id: 1, side: "pro", weight: 6 }]);
+  stepFor(sim, 5000);
+  expect(sim.getLanded()).toEqual({ net: 6, count: 1 });
+
+  sim.syncReasons([{ id: 1, side: "con", weight: 6 }]);
+  expect(sim.getLanded()).toEqual({ net: 0, count: 0 }); // lifted off, falling again
+  stepFor(sim, 6000);
+  expect(sim.getLanded()).toEqual({ net: -6, count: 1 });
+  const s = sim.snapshot();
+  expect(Math.abs(s.balls[0].x - s.con.x)).toBeLessThan(GEO.PW);
+  sim.destroy();
+});
+
 test("removing a reason lifts its ball off and the beam re-levels", () => {
   const sim = createScaleSim();
   sim.syncReasons([{ id: 1, side: "pro", weight: 8 }]);

@@ -20,17 +20,22 @@ const FONT = 23;
 const DROP = 9;
 const WEIGHT_W = 30;
 
-// Grow a textarea to whole ruled lines. Its line-height IS the rule, so
-// scrollHeight always lands on rule-multiples. Toggling height to "auto"
-// forces a reflow that some browsers use to collapse the caret to index 0 on
-// a focused field, so snapshot the selection and put it back.
-function autosize(el) {
+// Grow a textarea to whole ruled lines. line-height IS the rule, so a filled
+// textarea is ~lines×rule tall — but browsers hand back a scrollHeight that's
+// off by a fraction (font ascent/leading rounding), and across a column those
+// fractions accumulate until rows visibly slide off the ruled grid. Snapping
+// the height to an exact rule-multiple keeps every row locked to a line.
+// Toggling height to "auto" forces a reflow that some browsers use to collapse
+// the caret to index 0 on a focused field, so snapshot the selection and
+// restore it.
+function autosize(el, rule) {
   if (!el) return;
   const focused = document.activeElement === el;
   const start = el.selectionStart;
   const end = el.selectionEnd;
   el.style.height = "auto";
-  el.style.height = `${el.scrollHeight}px`;
+  const lines = Math.max(1, Math.round(el.scrollHeight / rule));
+  el.style.height = `${lines * rule}px`;
   if (focused) el.setSelectionRange(start, end);
 }
 
@@ -46,7 +51,7 @@ const inkTextarea = (rule, color) => ({
   resize: "none",
   overflow: "hidden",
   background: "transparent",
-  fontFamily: "Kalam, Caveat, cursive",
+  fontFamily: "Arial, Caveat, cursive",
   fontWeight: 700,
   fontSize: FONT,
   lineHeight: `${rule}px`,
@@ -65,7 +70,7 @@ const inkWeight = (rule, color) => ({
   border: "none",
   outline: "none",
   background: "transparent",
-  fontFamily: "Kalam, Caveat, cursive",
+  fontFamily: "Arial, Caveat, cursive",
   fontWeight: 700,
   fontSize: FONT,
   lineHeight: `${rule}px`,
@@ -263,17 +268,21 @@ function WeightInput({ side, row, value, color, rule, onCommit, onKeyDownExtra, 
 // Click anywhere in the text to edit (no mode switch); the grip in the left
 // gutter is the drag handle for the trash. A reason whose text is emptied is
 // deleted the moment focus leaves the row.
-function ReasonRow({ side, row, r, rule, dragging, onRowPointerDown, onUpdate, onDelete }) {
+function ReasonRow({ side, row, r, rule, dragging, onRowPointerDown, onUpdate, onDelete, onEditFocus, onEditBlur }) {
   const taRef = useRef(null);
   useEffect(() => {
-    autosize(taRef.current);
+    autosize(taRef.current, rule);
   }, [r.text, rule]);
 
   return (
     <div
       className="reason"
+      // focus/blur bubble from both the textarea and the weight box: while the
+      // caret is anywhere in this row, its ball glows on the scale
+      onFocus={() => onEditFocus(r.id)}
       onBlur={(e) => {
         if (e.currentTarget.contains(e.relatedTarget)) return; // text ↔ weight
+        onEditBlur(r.id);
         const t = r.text.trim();
         if (!t) onDelete(r.id);
         else if (t !== r.text) onUpdate(r.id, t, r.weight);
@@ -301,7 +310,7 @@ function ReasonRow({ side, row, r, rule, dragging, onRowPointerDown, onUpdate, o
         value={r.text}
         onChange={(e) => {
           onUpdate(r.id, e.currentTarget.value, r.weight);
-          autosize(e.currentTarget);
+          autosize(e.currentTarget, rule);
         }}
         onKeyDown={(e) => {
           if (e.key === "Escape") {
@@ -360,6 +369,8 @@ export default function ReasonColumn({
   onUpdateReason,
   onAddReason,
   onDeleteReason,
+  onEditFocus,
+  onEditBlur,
 }) {
   const accent = ACCENT[side];
   const listRef = useRef(null);
@@ -376,7 +387,7 @@ export default function ReasonColumn({
     setDraft("");
     // keep the caret on the now-next line, like typing in a document
     requestAnimationFrame(() => {
-      autosize(taRef.current);
+      autosize(taRef.current, rule);
       taRef.current?.focus();
       if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
     });
@@ -419,7 +430,12 @@ export default function ReasonColumn({
     setActive(false);
   };
 
-  const crowded = reasons.length >= CROWDED_AT;
+  // nudge the moment the page is one reason away from needing to scroll — the
+  // list fits floor(listHeight/rule) rows counting the composer, so the
+  // scrollbar first appears at `capacity` reasons; warn one before that. Fall
+  // back to a fixed count if the height hasn't been measured yet.
+  const capacity = listHeight ? Math.floor(listHeight / rule) : CROWDED_AT + 1;
+  const crowded = reasons.length >= capacity - 1;
 
   return (
     <div style={{ display: "flex", flexDirection: "column" }}>
@@ -449,6 +465,8 @@ export default function ReasonColumn({
             onRowPointerDown={onRowPointerDown}
             onUpdate={onUpdateReason}
             onDelete={onDeleteReason}
+            onEditFocus={onEditFocus}
+            onEditBlur={onEditBlur}
           />
         ))}
 
@@ -479,7 +497,7 @@ export default function ReasonColumn({
             onFocus={() => setActive(true)}
             onChange={(e) => {
               setDraft(e.currentTarget.value);
-              autosize(e.currentTarget);
+              autosize(e.currentTarget, rule);
             }}
             onKeyDown={onDraftKey}
             onBlur={onDraftBlur}
@@ -503,12 +521,15 @@ export default function ReasonColumn({
       {crowded && (
         <div
           style={{
-            font: "700 14px Kalam, Caveat, cursive",
+            font: "700 14px Arial, Caveat, cursive",
             color: accent.text,
             opacity: 0.85,
             transform: "rotate(-0.1deg)",
             whiteSpace: "nowrap",
             marginTop: 9,
+            // line up with the reason text: match the list's text-side inset
+            // (scrollbar side for PROS, inner gutter for CONS).
+            paddingLeft: side === "pro" ? 14 : 16,
           }}
         >
           easy there, keep to the key reasons

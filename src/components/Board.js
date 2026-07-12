@@ -26,8 +26,11 @@ const PAPER_BG = [
 
 const MARKER = "'Permanent Marker', cursive";
 const INK = "#1d1d1d";
-const PEN_BLUE = "#2456a4"; // handwritten-in-blue-ink accent for user input
 const POP_MS = 380; // covers the .pop-core / .pop-particle CSS animations
+// Longest title that still fits on the header strip's single line at fontSize
+// 50 — past this the editable span would start scrolling like a never-ending
+// line, so we hard-stop input here (and on paste) instead.
+const MAX_TITLE_LENGTH = 42;
 
 const paintRough = (ds, sw, keyPrefix) =>
   ds.map((d, i) => (
@@ -57,6 +60,10 @@ export default function Board() {
   const [dragPos, setDragPos] = useState({ x: 0, y: 0 });
   const [dragMeta, setDragMeta] = useState({ text: "", weight: 0, color: "#333" });
   const [overTrash, setOverTrash] = useState(false);
+  // the reason whose text/weight currently holds the caret — its ball glows on
+  // the scale so an edit (especially a live weight morph) is visibly anchored
+  // to one ball. Single-valued: focus can only be in one row at a time.
+  const [editingId, setEditingId] = useState(null);
 
   // refs so the window listeners always see the latest interaction state
   const nid = useRef(0);
@@ -164,6 +171,12 @@ export default function Board() {
       )
     );
 
+  // rows report where the caret lives; blur only clears if focus didn't
+  // already move on to another row (its focus event lands first-or-after,
+  // so the functional check keeps the newest row's highlight)
+  const onEditFocus = (id) => setEditingId(id);
+  const onEditBlur = (id) => setEditingId((cur) => (cur === id ? null : cur));
+
   // the row leaves the list at once, but the ball stays on the scale just
   // long enough to pop — only then is the reason really removed and the beam
   // re-settles. Shared by the trash drop and by emptying a reason's text, and
@@ -172,6 +185,7 @@ export default function Board() {
   const deleteReason = (id) => {
     if (deletingRef.current.has(id)) return;
     deletingRef.current.add(id);
+    setEditingId((cur) => (cur === id ? null : cur)); // a dying row stops glowing
     setPopping((p) => [...p, id]);
     popTimers.current.push(
       setTimeout(() => {
@@ -187,7 +201,7 @@ export default function Board() {
   // ── page layout, in stage units ────────────────────────────────────────────
   // The T-chart claims all the room between the red margin and the scale, and
   // its top lines up with the top of the scale (pivot badge ≈ stage y 166).
-  const scaleLeft = sw - 582; // scale container: right:16, width:566
+  const scaleLeft = sw - 622; // scale container: right:64, width:566
   const chartLeft = 110;
   const chartRight = Math.min(900, scaleLeft - 26);
   const midX = Math.round((chartLeft + chartRight) / 2);
@@ -202,8 +216,8 @@ export default function Board() {
     4 * RULE,
     Math.min(sh - colTop - 110, dividerBottom - colTop - RULE)
   ); // the writing area — a fixed-height "page", staying inside the chart
-  // verdict sits under the last ruled line, tucked to the right
-  const verdictTop = RULE * Math.floor((sh - 38) / RULE) + 4;
+  // verdict sits on the very last ruled line that fits, tucked to the right
+  const verdictTop = RULE * Math.floor((sh - 4) / RULE) - 30;
 
   // stable references so the memoized <Scale/> skips drag re-renders
   const pros = useMemo(() => reasons.filter((r) => r.side === "pro"), [reasons]);
@@ -243,6 +257,8 @@ export default function Board() {
     onUpdateReason: updateReason,
     onAddReason: addReason,
     onDeleteReason: deleteReason,
+    onEditFocus,
+    onEditBlur,
   };
 
   return (
@@ -291,20 +307,21 @@ export default function Board() {
             position: "absolute",
             top: 4 * RULE - 50,
             left: 120,
-            maxWidth: 760,
+            right: 120,
             display: "flex",
             alignItems: "baseline",
             justifyContent: "flex-start",
             gap: 16,
             zIndex: 4,
+            overflow: "hidden",
           }}
         >
           <span
             style={{
               fontFamily: MARKER,
-              fontSize: 38,
+              fontSize: 50,
               lineHeight: 1,
-              color: "#6b6b66",
+              color: INK,
               whiteSpace: "nowrap",
             }}
           >
@@ -322,28 +339,57 @@ export default function Board() {
               setTitle(e.currentTarget.textContent.trim());
               setEditingTitle(false);
             }}
+            
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
                 e.currentTarget.blur();
+                return;
               }
               if (e.key === "Escape") {
                 e.currentTarget.textContent = title;
                 e.currentTarget.blur();
+                return;
               }
+              // block any character-producing key once we're at the cap —
+              // but let editing/navigation keys, shortcuts, and typing over a
+              // selection (which nets no growth) through.
+              const sel = window.getSelection();
+              const hasSelection = sel && !sel.isCollapsed;
+              const typingKey = e.key.length === 1 && !e.ctrlKey && !e.metaKey;
+              if (
+                typingKey &&
+                !hasSelection &&
+                (e.currentTarget.textContent || "").length >= MAX_TITLE_LENGTH
+              ) {
+                e.preventDefault();
+              }
+            }}
+            onPaste={(e) => {
+              // trim pasted text so the total never exceeds the cap
+              e.preventDefault();
+              const el = e.currentTarget;
+              const sel = window.getSelection();
+              const selLen =
+                sel && !sel.isCollapsed ? sel.toString().length : 0;
+              const room = MAX_TITLE_LENGTH - ((el.textContent || "").length - selLen);
+              if (room <= 0) return;
+              const paste = (e.clipboardData || window.clipboardData)
+                .getData("text")
+                .replace(/\s+/g, " ")
+                .slice(0, room);
+              document.execCommand("insertText", false, paste);
             }}
             style={{
               fontFamily: MARKER,
-              fontSize: 46,
+              fontSize: 50,
               lineHeight: 0.80,
-              color: PEN_BLUE,
+              color: "#737370",
               cursor: editingTitle ? "text" : "pointer",
               minWidth: 60,
               textAlign: "left",
-              borderBottom: editingTitle
-                ? "3px solid rgba(36,86,164,.35)"
-                : "3px solid transparent",
-              overflowWrap: "anywhere",
+              whiteSpace: "nowrap",
+              outline: "none",
             }}
           >
             {title}
@@ -385,22 +431,30 @@ export default function Board() {
         </div>
 
         {/* PROS column — its left edge (where the scrollbar rides) sits on the
-            crossbar's left end; a small right gap keeps text off the divider */}
-        <div style={{ position: "absolute", left: chartLeft, top: colTop, width: midX - chartLeft - 16, zIndex: 2 }}>
+            crossbar's left end; the right edge runs close to the divider, with
+            just enough gap for the grip to tuck beside the beam. */}
+        <div style={{ position: "absolute", left: chartLeft, top: colTop, width: midX - chartLeft - 6, zIndex: 2 }}>
           <ReasonColumn side="pro" reasons={proRows} {...columnProps} />
         </div>
 
         {/* CONS column — its right edge (scrollbar) sits on the crossbar's right
-            end; a small left gap keeps text off the divider */}
-        <div style={{ position: "absolute", left: midX + 16, top: colTop, width: chartRight - midX - 16, zIndex: 2 }}>
+            end; the left edge runs close to the divider, mirroring PROS. */}
+        <div style={{ position: "absolute", left: midX + 6, top: colTop, width: chartRight - midX - 6, zIndex: 2 }}>
           <ReasonColumn side="con" reasons={conRows} {...columnProps} />
         </div>
 
         {/* SCALE */}
         {/* right: 24 — the pans now overhang the 560-wide viewBox by ~20px a
             side (overflow visible), so keep the CON pan clear of the paper edge */}
-        <div style={{ position: "absolute", right: 24, top: 128, width: 566, height: 648, zIndex: 2 }}>
-          <Scale pros={pros} cons={cons} onLanded={setLanded} markedId={dragId} popping={popping} />
+        <div style={{ position: "absolute", right: 64, top: 128, width: 566, height: 648, zIndex: 2 }}>
+          <Scale
+            pros={pros}
+            cons={cons}
+            onLanded={setLanded}
+            markedId={dragId}
+            editingId={editingId}
+            popping={popping}
+          />
         </div>
 
         {/* TRASH */}

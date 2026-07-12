@@ -46,6 +46,30 @@ code {
   animation: ballPulse 0.8s ease-in-out infinite;
 }
 
+/* ball whose reason holds the caret: lit with its own ink — a soft breathing
+   glow that keeps the fill fully readable, because during a weight edit the
+   shade IS the feedback (the ball darkens/lightens as it morphs). Deliberately
+   different from the washed-out drag pulse above. --glow is set inline to the
+   ball's stroke color. */
+@keyframes ballEditGlow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 1px var(--glow, rgba(0, 0, 0, 0.4)));
+  }
+  50% {
+    filter: drop-shadow(0 0 7px var(--glow, rgba(0, 0, 0, 0.4))) brightness(1.15);
+  }
+}
+.ball-editing {
+  animation: ballEditGlow 1.05s ease-in-out infinite;
+}
+
+/* a weight-edited ball re-inks smoothly: the physics loop eases its radius,
+   CSS carries the fill/stroke to the new weight's shade in step with it */
+.ball-core {
+  transition: fill 0.35s ease, stroke 0.35s ease;
+}
+
 /* the iMessage-unsend poof: the bubble puffs up a touch, then collapses,
    while a ring of droplets scatters outward and dissolves. The physics
    wrapper keeps holding the ball's place on the scale throughout. */
@@ -108,14 +132,14 @@ code {
    that never crowds either the handwriting or the scrollbar. */
 .list-pro {
   direction: rtl;
-  padding-right: 20px; /* inner gutter (toward divider) for the grip */
+  padding-right: 16px; /* inner gutter (toward divider) — the grip's lane */
   padding-left: 14px; /* keep the text clear of the left scrollbar */
 }
 .list-pro > * {
   direction: ltr;
 }
 .list-con {
-  padding-left: 20px; /* inner gutter (toward divider) for the grip */
+  padding-left: 16px; /* inner gutter (toward divider) — the grip's lane */
   padding-right: 14px; /* keep the text clear of the right scrollbar */
 }
 
@@ -141,8 +165,8 @@ code {
 .grip {
   position: absolute;
   top: 50%;
-  width: 5px;
-  height: 20px;
+  width: 8px;
+  height: 30px;
   transform: translateY(-50%) scaleY(0.55);
   border-radius: 3px;
   background: #9a9a97;
@@ -153,10 +177,10 @@ code {
   transition: opacity 0.15s ease, transform 0.15s ease;
 }
 .grip-pro {
-  right: -7px;
+  right: -11px;
 }
 .grip-con {
-  left: -7px;
+  left: -11px;
 }
 .reason:hover .grip {
   opacity: 0.55;

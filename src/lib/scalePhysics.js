@@ -15,6 +15,11 @@
 //    moves before the ball arrives; on touchdown the impact also kicks the
 //    beam for a natural dip. This keeps the settled angle exactly consistent
 //    with the verdict math while the balls stay fully physical.
+//  • A weight EDIT never despawns the ball: the body stays where it is and
+//    its radius eases toward the new size (Body.scale per substep), so the
+//    ball visibly grows/shrinks in place and shoulders its neighbours aside.
+//    Only a side change (pro ↔ con) re-drops — that ball belongs to the
+//    other pan.
 
 import Matter from "matter-js";
 import { tiltFor, ballRadius, clampWeight } from "./scaleMath";
@@ -53,6 +58,19 @@ const KICK = 0.55; // touchdown impulse at weight 10, full speed
 
 const MAX_FALL = 26; // terminal velocity, px per 16.666ms (~1560 px/s)
 const SPAWN_GAP_PX = 60; // next same-side ball waits until this much clearance
+
+// Every ball is the same 24-gon regardless of size (Bodies.circle would give
+// small balls as few as 10 sides — fine at spawn size, visibly faceted once
+// a weight edit grows one 3×). Uniform roundness keeps morphed balls rolling
+// and stacking exactly like born-big ones.
+const BALL_SIDES = 24;
+// Weight edit → the radius eases toward its new size with a ~90ms time
+// constant (≈ a third of a second to finish): quick enough to feel tied to
+// the keystroke, slow enough that the pile visibly makes room.
+const MORPH_K = 1 - Math.exp(-STEP_MS / 90);
+const densityFor = (w) => 0.0011 * (0.85 + 0.05 * w); // heavier shoves lighter
+// constant-acceleration fall, scaled by weight: w=1 → 1.15g, w=10 → 2.05g
+const gMultFor = (w) => 1.15 + ((w - 1) / 9) * 0.9;
 
 // Two materials per ball. AIRBORNE is lively: a clean fall, the slight
 // touchdown bounce, a bit of rolling along the bowl. Once a landed ball is
@@ -246,19 +264,21 @@ export function createScaleSim() {
     const rand = mulberry32((id * 2654435761) >>> 0)();
     const n = spawnCount[side]++;
     const dx = (n % 2 === 0 ? -1 : 1) * (6 + rand * 16);
-    const body = Bodies.circle(rimCenter(side).x + dx, GEO.SPAWN_Y, r, {
+    const body = Bodies.polygon(rimCenter(side).x + dx, GEO.SPAWN_Y, BALL_SIDES, r, {
       ...AIRBORNE,
-      density: 0.0011 * (0.85 + 0.05 * w), // heavier reasons shove lighter balls
+      density: densityFor(w), // heavier reasons shove lighter balls
       collisionFilter: ballFilter(side),
       label: "ball-" + id,
     });
+    // mark it a circle so Body.scale keeps scaling one radius, not an ellipse
+    body.circleRadius = r;
     body._pnc = {
       id,
       side,
       weight: w,
-      r,
-      // constant-acceleration fall, scaled by weight: w=1 → 1.15g, w=10 → 2.05g
-      gMult: 1.15 + ((w - 1) / 9) * 0.9,
+      r, // current physics radius (eases toward targetR during a morph)
+      targetR: r,
+      gMult: gMultFor(w),
       landed: false,
       calm: false, // switched to the SETTLED material yet?
       overflow: false,
@@ -384,6 +404,15 @@ export function createScaleSim() {
     // weight-scaled gravity (matter applies 1×; add the remainder) + terminal velocity
     for (const body of ballBodies.values()) {
       const m = body._pnc;
+      // mid-morph: ease the radius toward its edited size. Growth per substep
+      // is ~1px at worst — far thinner than the bowl shell, so no tunnelling;
+      // the position solver walks neighbours apart as the ball swells.
+      if (m.r !== m.targetR) {
+        let next = m.r + (m.targetR - m.r) * MORPH_K;
+        if (Math.abs(next - m.targetR) < 0.05) next = m.targetR;
+        Body.scale(body, next / m.r, next / m.r);
+        m.r = next;
+      }
       body.force.y +=
         body.mass * engine.gravity.y * engine.gravity.scale * (m.gMult - 1);
       const v = Body.getVelocity(body);
@@ -415,16 +444,32 @@ export function createScaleSim() {
     },
 
     // Diff the reason list against the world: new ids queue up to drop,
-    // deleted ids vanish (beam re-settles), edited ids re-drop.
+    // deleted ids vanish (beam re-settles), side flips re-drop onto the other
+    // pan, and weight edits MORPH the existing ball in place — the ledger
+    // swaps to the new weight at once (the beam's spring supplies the smooth
+    // swing) while the body eases its radius in substep().
     syncReasons(reasons) {
       const want = new Map(reasons.map((r) => [r.id, r]));
       let changed = false;
 
       for (const id of [...ballBodies.keys()]) {
         const r = want.get(id);
-        const m = ballBodies.get(id)._pnc;
-        if (!r || r.side !== m.side || clampWeight(r.weight) !== m.weight) {
+        const body = ballBodies.get(id);
+        const m = body._pnc;
+        if (!r || r.side !== m.side) {
           if (removeBall(id)) changed = true;
+          continue;
+        }
+        const w = clampWeight(r.weight);
+        if (w !== m.weight) {
+          if (m.landed) {
+            landedNet += m.side === "pro" ? w - m.weight : m.weight - w;
+            changed = true;
+          }
+          m.weight = w;
+          m.gMult = gMultFor(w);
+          m.targetR = ballRadius(w);
+          Body.setDensity(body, densityFor(w));
         }
       }
       // spilled balls have no body but still sit on the ledger — deleting or
@@ -473,6 +518,7 @@ export function createScaleSim() {
           landed: b._pnc.landed,
           x: b.position.x,
           y: b.position.y,
+          r: b._pnc.r, // live radius — mid-morph it is between the two sizes
         })),
       };
     },
