@@ -265,7 +265,40 @@ code {
   transform: translateX(-50%) rotate(1deg);
 }
 
-/* clear-the-page modal: options written in marker inside sketchy boxes */
+/* the trash can is a button now: its ink blushes red while the mouse hovers
+   or a reason is being dragged over it (.trash-hot). The badge and the little
+   balls inside keep their own colors — only the can's linework heats up. */
+#trashzone {
+  cursor: pointer;
+}
+.trash-ink {
+  transition: stroke 0.25s ease;
+}
+#trashzone:hover .trash-ink,
+.trash-hot .trash-ink {
+  stroke: #c3352c;
+}
+
+/* restore ↩ / shred ✕ buttons on a stashed reason's row in the trash view */
+.trow-btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  font: 700 15px "Permanent Marker", cursive;
+  line-height: 22px;
+  padding: 0 5px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.12s ease, transform 0.12s ease, background 0.12s ease;
+}
+.trow-btn:hover {
+  opacity: 1;
+  background: rgba(29, 29, 29, 0.07);
+  transform: scale(1.15);
+}
+
+/* trash-menu modal: options written in marker inside sketchy boxes */
 .modal-opt {
   appearance: none;
   background: transparent;

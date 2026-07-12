@@ -39,7 +39,7 @@ Single-screen React 19 app. `App` renders one component, `Board`, which owns ess
 
 ## Gotchas / current state
 
-- **`roughjs` is wrapped by `src/lib/rough.js`** (seeded, deterministic strokes — lines don't re-scribble on re-render); `matter-js` is used only inside `src/lib/scalePhysics.js`. Don't import matter elsewhere — components should talk to the sim API (`syncReasons`/`step`/`snapshot`).
+- **`roughjs` is wrapped by `src/lib/rough.js`** (seeded, deterministic strokes — lines don't re-scribble on re-render); `matter-js` lives only in the physics libs — `src/lib/scalePhysics.js` (the scale) and `src/lib/trashPhysics.js` (the mini ball pile inside the trash can). Don't import matter elsewhere — components should talk to a sim API (`syncReasons`/`syncItems`/`step`/`snapshot`).
 - **The rAF loop, not React, owns the animated SVG transforms** (beam, pans, balls in `Scale.js`). Per-ball JSX `transform` values are constants (an off-screen parking spot) so reconciliation never clobbers live physics positions. If you add animated elements, follow the same pattern: static JSX + a ref the loop writes to.
 - **The backend is not connected to the frontend.** Weights are entered by hand in the add form; nothing in `src/` calls `/api/weight`. The Express + OpenAI weighting server exists but is standalone. Wiring it in (auto-weighting a reason on add) is an obvious next step.
 - **The root `README.md` is aspirational and inaccurate.** It describes a Python/FastAPI + TextBlob backend and Chart.js/Axios frontend; the real stack is an Express/OpenAI backend and a custom-SVG React frontend. Trust the code over that README.

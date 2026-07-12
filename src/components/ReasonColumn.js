@@ -305,7 +305,7 @@ function ReasonRow({ side, row, r, rule, hideWeights, dragging, onRowPointerDown
     >
       <div
         className={`grip grip-${side}`}
-        title="drag to the trash to delete"
+        title="drag to the trash to stash it"
         style={{ color: shade(side, w) }}
         onPointerDown={(e) => onRowPointerDown(e, r)}
       />

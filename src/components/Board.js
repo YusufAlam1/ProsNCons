@@ -3,7 +3,7 @@ import Scale from "./Scale";
 import ReasonColumn from "./ReasonColumn";
 import Trash from "./Trash";
 import MarginTools from "./MarginTools";
-import ClearModal from "./ClearModal";
+import TrashModal from "./TrashModal";
 import { rLine } from "../lib/rough";
 import { shade, clampWeight, verdictFor } from "../lib/scaleMath";
 import { GEO } from "../lib/scalePhysics";
@@ -60,16 +60,20 @@ export default function Board() {
   // in state, so toggling back restores them exactly)
   const [hideWeights, setHideWeights] = useState(false);
   // Undo/redo across every content action. Each entry is one user gesture:
-  //   add    — a reason committed from a composer
-  //   edit   — one edit session of a row (focus → blur), text and/or weight
-  //   delete — one trash drop or "clear the page" batch, [{ reason, index }]
-  //   title  — a committed change to the page title
-  // The weights switch is a view preference and deliberately stays out.
+  //   add     — a reason committed from a composer
+  //   edit    — one edit session of a row (focus → blur), text and/or weight
+  //   delete  — a plain removal (emptied text / "delete outright" clear)
+  //   trash   — a batch STASHED in the trash (drag drop, Alt+T, clear-to-trash)
+  //   restore — a reason pulled back out of the trash
+  //   title   — a committed change to the page title
+  // The weights switch is a view preference and deliberately stays out; so do
+  // shred-forever and empty-trash — those are permanent by design.
   const [undoStack, setUndoStack] = useState([]);
   const [redoStack, setRedoStack] = useState([]);
-  // the right-click-the-trash flow: scope pick, then confirm
-  const [clearMenu, setClearMenu] = useState(false);
-  const [confirmScope, setConfirmScope] = useState(null); // 'pro' | 'con' | 'all'
+  // the trash's stash: reasons dragged/hotkeyed onto the can, awaiting a
+  // verdict — retrievable from the click-the-can modal
+  const [trash, setTrash] = useState([]);
+  const [trashMenu, setTrashMenu] = useState(false);
 
   // drag state that needs to render
   const [dragId, setDragId] = useState(null);
@@ -97,10 +101,15 @@ export default function Board() {
   const redoRef = useRef(() => {});
   const editSessionRef = useRef(null); // { id, text, weight } — row state when the caret entered it
   const pendingSessionRef = useRef(null); // a just-blurred session, until its deferred record lands
+  const trashRef = useRef([]);
+  const editingIdRef = useRef(null);
+  const archiveRef = useRef(() => {});
   reasonsRef.current = reasons;
   hideWeightsRef.current = hideWeights;
   undoStackRef.current = undoStack;
   redoStackRef.current = redoStack;
+  trashRef.current = trash;
+  editingIdRef.current = editingId;
 
   useEffect(() => {
     const fit = () => {
@@ -146,14 +155,14 @@ export default function Board() {
         pendingRef.current = null;
         return;
       }
-      const del = overTrashRef.current;
+      const drop = overTrashRef.current;
       const id = dragIdRef.current;
       pendingRef.current = null;
       dragIdRef.current = null;
       overTrashRef.current = false;
       setDragId(null);
       setOverTrash(false);
-      if (del) deleteReason(id);
+      if (drop) archiveRef.current(id); // dropping on the can STASHES, not deletes
     };
 
     window.addEventListener("resize", fit);
@@ -168,20 +177,23 @@ export default function Board() {
     };
   }, []);
 
-  // Hotkeys. Alt+W flips the weights switch anywhere. Ctrl+Z / Ctrl+Y (or
-  // Ctrl+Shift+Z) drive undo/redo — but never while the caret is in a text
-  // field, where Ctrl+Z must stay the browser's own typing undo (the app
-  // history takes over the moment the caret leaves the field).
+  // Hotkeys. Alt+W flips the weights switch anywhere; Alt+T stashes the row
+  // holding the caret into the trash. Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) drive
+  // undo/redo — but never while the caret is in a text field, where Ctrl+Z
+  // must stay the browser's own typing undo (the app history takes over the
+  // moment the caret leaves the field).
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Escape") {
-        setClearMenu(false);
-        setConfirmScope(null);
-      }
+      if (e.key === "Escape") setTrashMenu(false);
       const k = e.key.toLowerCase();
       if (e.altKey && !e.ctrlKey && !e.metaKey && k === "w") {
         e.preventDefault();
         setHideWeights((h) => !h);
+        return;
+      }
+      if (e.altKey && !e.ctrlKey && !e.metaKey && k === "t") {
+        e.preventDefault();
+        if (editingIdRef.current != null) archiveRef.current(editingIdRef.current);
         return;
       }
       const t = e.target;
@@ -288,8 +300,8 @@ export default function Board() {
   // idempotent: a reason already mid-pop ignores repeat calls (the keyboard
   // delete and the follow-on blur can both fire for one row).
   // performDelete only animates+removes; recording for undo happens in the
-  // user-facing entry points (deleteReason / clearReasons) so redo can replay
-  // a deletion without stacking a second history entry.
+  // user-facing entry points (deleteReason / archiveReason / clearReasons)
+  // so redo can replay a removal without stacking a second history entry.
   const performDelete = (id) => {
     if (deletingRef.current.has(id)) return;
     deletingRef.current.add(id);
@@ -334,9 +346,35 @@ export default function Board() {
     performDelete(id);
   };
 
-  // the trash's right-click menu: clear one side or the whole page, as a
-  // single undoable step
-  const clearReasons = (scope) => {
+  // ── the trash as an archive ────────────────────────────────────────────────
+  // Dropping a reason on the can (or Alt+T on the row being edited) STASHES
+  // it: off the scale, into the trash, retrievable from the can's modal. An
+  // open edit session folds into the gesture — what the row says NOW is what
+  // gets stashed (you stash the thought you just rewrote, not the old one);
+  // only a row emptied mid-edit falls back to its pre-session words.
+  const archiveReason = (id) => {
+    if (deletingRef.current.has(id)) return;
+    const idx = reasonsRef.current.findIndex((r) => r.id === id);
+    if (idx < 0) return;
+    const cur = reasonsRef.current[idx];
+    const before = sessionStateFor(id);
+    let reason = { ...cur, text: cur.text.trim() };
+    if (!reason.text && before) reason = { ...cur, ...before };
+    if (!reason.text.trim()) {
+      // a blank row isn't worth stashing — plain, undoable delete
+      pushAction({ type: "delete", items: [{ reason: cur, index: idx }] });
+      performDelete(id);
+      return;
+    }
+    pushAction({ type: "trash", items: [{ reason, index: idx }] });
+    setTrash((ts) => [...ts, reason]);
+    performDelete(id);
+  };
+  archiveRef.current = archiveReason;
+
+  // the can's menu: clear one side or the whole page as a single undoable
+  // step — the confirm chooses whether the batch is stashed or deleted
+  const clearReasons = (scope, dest) => {
     const items = reasonsRef.current
       .map((reason, index) => ({ reason, index }))
       .filter(
@@ -347,11 +385,34 @@ export default function Board() {
         const before = sessionStateFor(reason.id);
         return { reason: before ? { ...reason, ...before } : reason, index };
       });
-    if (items.length) pushAction({ type: "delete", items });
-    items.forEach(({ reason }) => performDelete(reason.id));
-    setClearMenu(false);
-    setConfirmScope(null);
+    if (items.length) {
+      if (dest === "trash") {
+        pushAction({ type: "trash", items });
+        setTrash((ts) => [...ts, ...items.map((i) => i.reason)]);
+      } else {
+        pushAction({ type: "delete", items });
+      }
+      items.forEach(({ reason }) => performDelete(reason.id));
+    }
+    setTrashMenu(false);
   };
+
+  // pull a reason back out of the trash — it rejoins the end of its column
+  // and its ball drops onto the scale again
+  const restoreFromTrash = (id) => {
+    const ti = trashRef.current.findIndex((r) => r.id === id);
+    if (ti < 0) return;
+    const reason = trashRef.current[ti];
+    pushAction({ type: "restore", reason, trashIndex: ti, index: reasonsRef.current.length });
+    setTrash((ts) => ts.filter((r) => r.id !== id));
+    restoreReasons([{ reason, index: reasonsRef.current.length }]);
+  };
+
+  // permanent exits — deliberately OUTSIDE the undo history (the trash view
+  // is the safety net; past it there's nothing to rescue). Emptying is the
+  // bulk version and double-checks in the modal first.
+  const shredForever = (id) => setTrash((ts) => ts.filter((r) => r.id !== id));
+  const emptyTrash = () => setTrash([]);
 
   // Put deleted reasons back: one still mid-pop is rescued in place (removal
   // timer cancelled, recorded text/weight restored — no re-drop); one already
@@ -395,6 +456,33 @@ export default function Board() {
         );
         break;
       }
+      case "trash": {
+        const ids = new Set(action.items.map((i) => i.reason.id));
+        if (undoing) {
+          setTrash((ts) => ts.filter((t) => !ids.has(t.id)));
+          restoreReasons(action.items);
+        } else {
+          action.items.forEach(({ reason }) => performDelete(reason.id));
+          setTrash((ts) => [
+            ...ts.filter((t) => !ids.has(t.id)),
+            ...action.items.map((i) => i.reason),
+          ]);
+        }
+        break;
+      }
+      case "restore":
+        if (undoing) {
+          performDelete(action.reason.id);
+          setTrash((ts) => {
+            const next = ts.filter((t) => t.id !== action.reason.id);
+            next.splice(Math.min(action.trashIndex, next.length), 0, action.reason);
+            return next;
+          });
+        } else {
+          setTrash((ts) => ts.filter((t) => t.id !== action.reason.id));
+          restoreReasons([{ reason: action.reason, index: action.index }]);
+        }
+        break;
       case "title":
         setTitle(undoing ? action.before : action.after);
         break;
@@ -717,32 +805,33 @@ export default function Board() {
           />
         </div>
 
-        {/* TRASH — drop a reason to delete it; right-click to clear the page */}
+        {/* TRASH — an archive: drop (or Alt+T) a reason to stash it; click
+            (or right-click) the can to dig through it or clear the page */}
         <div
           id="trashzone"
           className="mtip mtip-up"
-          data-tip={overTrash ? undefined : "right-click to clear the page"}
+          data-tip={overTrash ? undefined : "the trash — click to open, drop a reason to stash it"}
+          onClick={() => setTrashMenu(true)}
           onContextMenu={(e) => {
             e.preventDefault();
-            setClearMenu(true);
+            setTrashMenu(true);
           }}
           style={{ position: "absolute", left: 16, bottom: 10, zIndex: 3 }}
         >
-          <Trash open={overTrash} />
+          <Trash open={overTrash} items={trash} />
         </div>
 
-        {/* CLEAR-THE-PAGE modal (right-click on the trash) */}
-        {clearMenu && (
-          <ClearModal
+        {/* THE TRASH modal (click the can) */}
+        {trashMenu && (
+          <TrashModal
             proCount={proRows.length}
             conCount={conRows.length}
-            scope={confirmScope}
-            onScope={setConfirmScope}
-            onConfirm={() => clearReasons(confirmScope)}
-            onClose={() => {
-              setClearMenu(false);
-              setConfirmScope(null);
-            }}
+            trash={trash}
+            onClear={clearReasons}
+            onRestore={restoreFromTrash}
+            onShred={shredForever}
+            onEmptyTrash={emptyTrash}
+            onClose={() => setTrashMenu(false)}
           />
         )}
       </div>
